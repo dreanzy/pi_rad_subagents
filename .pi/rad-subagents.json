@@ -1,0 +1,75 @@
+{
+  "defaultModel": "opencode-go/deepseek-v4-flash:high",
+  "agents": {
+    "orchestrator": {
+      "description": "Workflow manager that plans, delegates, reconciles, and verifies",
+      "model": [
+        "opencode/deepseek-v4-flash-free:xhigh",
+        "opencode-go/deepseek-v4-flash:xhigh",
+        "deepseek/deepseek-v4-flash:xhigh"
+      ]
+    },
+    "deepwork": {
+      "description": "Structured deep work with plan file, Oracle gates, and phased execution",
+      "model": [
+        "opencode-go/deepseek-v4-pro:xhigh",
+        "deepseek/deepseek-v4-pro:xhigh"
+      ]
+    },
+    "explorer": {
+      "description": "Fast codebase reconnaissance",
+      "model": [
+        "opencode/deepseek-v4-flash-free",
+        "opencode-go/deepseek-v4-flash",
+        "deepseek/deepseek-v4-flash"
+      ]
+    },
+    "librarian": {
+      "description": "External knowledge and library research",
+      "model": [
+        "opencode/deepseek-v4-flash-free:high",
+        "opencode-go/deepseek-v4-flash:high",
+        "deepseek/deepseek-v4-flash:high"
+      ]
+    },
+    "oracle": {
+      "description": "Architecture decisions and code review",
+      "model": [
+        "opencode-go/deepseek-v4-pro:xhigh",
+        "deepseek/deepseek-v4-pro:xhigh"
+      ]
+    },
+    "designer": {
+      "description": "UI/UX design and implementation",
+      "model": [
+        "opencode-go/deepseek-v4-pro:high",
+        "deepseek/deepseek-v4-pro:high"
+      ]
+    },
+    "fixer": {
+      "description": "Bounded implementation specialist",
+      "model": [
+        "opencode/deepseek-v4-flash-free:high",
+        "opencode-go/deepseek-v4-flash:high",
+        "deepseek/deepseek-v4-flash:high"
+      ]
+    },
+    "observer": {
+      "description": "Visual and media analysis",
+      "model": ["opencode/mimo-v2.5-free:high", "opencode-go/mimo-v2.5:high"]
+    }
+  },
+  "orchestrator": {
+    "enabled": true
+  },
+  "agentAliases": {
+    "scout": "explorer",
+    "worker": "fixer",
+    "planner": "deepwork",
+    "researcher": "librarian",
+    "reviewer": "oracle",
+    "delegate": "orchestrator",
+    "context-builder": "explorer",
+    "general-purpose": "oracle"
+  }
+}
