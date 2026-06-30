@@ -58,7 +58,13 @@ function createAgentAutocompleteProvider(
 
 			if (!query) {
 				// No filter — show all agents (capped)
-				suggestions = agents.slice(0, MAX_SUGGESTIONS).map(toAutocompleteItem);
+				suggestions = agents
+					.slice(0, MAX_SUGGESTIONS)
+					.map((a) => ({
+						value: `@${a.name}`,
+						label: a.name,
+						description: a.description,
+					}));
 			} else {
 				// Phase 1: exact prefix match (case-insensitive)
 				const prefixMatches = agents.filter((a) =>
@@ -67,7 +73,11 @@ function createAgentAutocompleteProvider(
 				if (prefixMatches.length > 0) {
 					suggestions = prefixMatches
 						.slice(0, MAX_SUGGESTIONS)
-						.map(toAutocompleteItem);
+						.map((a) => ({
+							value: `@${a.name}`,
+							label: a.name,
+							description: a.description,
+						}));
 				} else {
 					// Phase 2: fuzzy match
 					const fuzzyMatches = fuzzyFilter(agents, query, (a) => a.name);
@@ -82,7 +92,11 @@ function createAgentAutocompleteProvider(
 					}
 					suggestions = fuzzyMatches
 						.slice(0, MAX_SUGGESTIONS)
-						.map(toAutocompleteItem);
+						.map((a) => ({
+							value: `@${a.name}`,
+							label: a.name,
+							description: a.description,
+						}));
 				}
 			}
 
@@ -116,17 +130,6 @@ function createAgentAutocompleteProvider(
 				true
 			);
 		},
-	};
-}
-
-function toAutocompleteItem(agent: {
-	name: string;
-	description: string;
-}): AutocompleteItem {
-	return {
-		value: `@${agent.name}`,
-		label: agent.name,
-		description: agent.description,
 	};
 }
 

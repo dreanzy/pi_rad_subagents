@@ -84,7 +84,6 @@ export function findGlobalRadSubagentsConfig(): string | null {
 }
 
 let cachedConfig: RadSubagentsPluginConfig | null = null;
-let cachedConfigPath: string | null = null;
 
 /**
  * Load the rad-subagents plugin configuration.
@@ -101,7 +100,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 
 	if (!configPath) {
 		cachedConfig = {};
-		cachedConfigPath = null;
 		return cachedConfig;
 	}
 
@@ -130,7 +128,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		}
 
 		cachedConfig = parsed;
-		cachedConfigPath = configPath;
 		return parsed;
 	} catch (err) {
 		console.error(
@@ -138,7 +135,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 			err,
 		);
 		cachedConfig = {};
-		cachedConfigPath = configPath;
 		return cachedConfig;
 	}
 }
@@ -146,17 +142,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 /** Clear the config cache (useful for hot-reload scenarios). */
 export function clearConfigCache(): void {
 	cachedConfig = null;
-	cachedConfigPath = null;
-}
-
-/**
- * Get the path of the loaded config file, if any.
- * @deprecated Use `findProjectRadSubagentsConfig(cwd) ?? findGlobalRadSubagentsConfig()`
- * directly instead. This function only returns the path that was cached during
- * the last `loadConfig()` call, which may be stale after `clearConfigCache()`.
- */
-export function getConfigPath(): string | null {
-	return cachedConfigPath;
 }
 
 // ── Agent config resolution ──────────────────────────────────────────

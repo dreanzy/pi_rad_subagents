@@ -1,61 +1,44 @@
 import { describe, it, expect } from "vitest";
+import { isAgentDisabled, resolveAgentConfig } from "../extensions/config.ts";
 
-// ── Config tests ────────────────────────────────────────────────────────
-
-describe("config loading", () => {
-	it("loadConfig returns defaults when no config file exists", () => {
-		// The module uses Node.js fs, which isn't available in vitest's default
-		// environment for browser-like tests. We test the config shape directly.
-		const config = {} as Record<string, unknown>;
-		expect(config).toBeTypeOf("object");
+describe("isAgentDisabled", () => {
+	it("returns false when agent not in config", () => {
+		expect(isAgentDisabled("explorer", {})).toBe(false);
 	});
 
-	it("agent alias resolution works", () => {
-		const aliases: Record<string, string> = {
-			scout: "explorer",
-			worker: "fixer",
-		};
-		const resolved = (name: string): string => {
-			const visited = new Set<string>();
-			while (aliases[name] && !visited.has(name)) {
-				visited.add(name);
-				name = aliases[name]!;
-			}
-			return name;
-		};
-		expect(resolved("scout")).toBe("explorer");
-		expect(resolved("worker")).toBe("fixer");
-		expect(resolved("explorer")).toBe("explorer");
+	it("returns false when agent is not disabled", () => {
+		const config = { agents: { explorer: { disabled: false } } };
+		expect(isAgentDisabled("explorer", config)).toBe(false);
 	});
 
-	it("retryable error detection works", () => {
-		const retryable = [/rate_limit/i, /rate limit/i, /timeout/i, /5\d{2}/];
-		const nonRetryable = [/invalid_api_key/i, /unauthorized/i];
+	it("returns true when agent disabled", () => {
+		const config = { agents: { explorer: { disabled: true } } };
+		expect(isAgentDisabled("explorer", config)).toBe(true);
+	});
+});
 
-		const isRetryable = (msg: string) => {
-			for (const p of nonRetryable) if (p.test(msg)) return false;
-			for (const p of retryable) if (p.test(msg)) return true;
-			return false;
-		};
-
-		expect(isRetryable("rate limit exceeded")).toBe(true);
-		expect(isRetryable("timeout after 30s")).toBe(true);
-		expect(isRetryable("HTTP 502")).toBe(true);
-		expect(isRetryable("invalid_api_key")).toBe(false);
-		expect(isRetryable("unauthorized")).toBe(false);
+describe("resolveAgentConfig", () => {
+	it("uses frontmatter description when no JSON override", () => {
+		const result = resolveAgentConfig(
+			"test",
+			{ description: "A test agent" },
+			{},
+		);
+		expect(result.description).toBe("A test agent");
 	});
 
-	it("formatTokens works for various sizes", () => {
-		const formatTokens = (count: number): string => {
-			if (count < 1000) return count.toString();
-			if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-			if (count < 1000000) return `${Math.round(count / 1000)}k`;
-			return `${(count / 1000000).toFixed(1)}M`;
-		};
+	it("JSON override description takes priority", () => {
+		const config = { agents: { test: { description: "Override desc" } } };
+		const result = resolveAgentConfig(
+			"test",
+			{ description: "Frontmatter desc" },
+			config,
+		);
+		expect(result.description).toBe("Override desc");
+	});
 
-		expect(formatTokens(500)).toBe("500");
-		expect(formatTokens(1500)).toBe("1.5k");
-		expect(formatTokens(55000)).toBe("55k");
-		expect(formatTokens(2500000)).toBe("2.5M");
+	it("falls back to agent name when no description available", () => {
+		const result = resolveAgentConfig("fallback-name", {}, {});
+		expect(result.description).toBe("fallback-name");
 	});
 });

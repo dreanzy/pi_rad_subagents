@@ -360,17 +360,9 @@ async function writePromptToTempFile(
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
-	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
+	if (currentScript && fs.existsSync(currentScript)) {
 		return { command: process.execPath, args: [currentScript, ...args] };
 	}
-
-	const execName = path.basename(process.execPath).toLowerCase();
-	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-	if (!isGenericRuntime) {
-		return { command: process.execPath, args };
-	}
-
 	return { command: "pi", args };
 }
 
@@ -387,19 +379,8 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
-	// Resolve agent aliases (e.g. @scout → @explorer)
 	const pluginConfig = loadConfig(defaultCwd);
-	// Resolve aliases with chain detection (e.g. scout → explorer; a→b→c also works)
-	let resolvedAgentName = agentName;
-	if (pluginConfig.agentAliases) {
-		const visited = new Set<string>();
-		let current = agentName;
-		while (pluginConfig.agentAliases[current] && !visited.has(current)) {
-			visited.add(current);
-			current = pluginConfig.agentAliases[current]!;
-		}
-		if (!visited.has(current)) resolvedAgentName = current;
-	}
+	const resolvedAgentName = pluginConfig.agentAliases?.[agentName] ?? agentName;
 
 	const agent = agents.find((a) => a.name === resolvedAgentName);
 
