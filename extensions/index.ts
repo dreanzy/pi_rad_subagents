@@ -483,7 +483,20 @@ async function runSingleAgent(
 
 		try {
 			if (agent.systemPrompt.trim()) {
-				const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
+				// ponytail: project APPEND_SYSTEM.md overrides global
+				let combinedPrompt = agent.systemPrompt;
+				const projectPath = path.join(
+					defaultCwd,
+					CONFIG_DIR_NAME,
+					"APPEND_SYSTEM.md",
+				);
+				const appendPath = fs.existsSync(projectPath)
+					? projectPath
+					: path.join(getAgentDir(), "APPEND_SYSTEM.md");
+				if (fs.existsSync(appendPath))
+					combinedPrompt += "\n\n" + fs.readFileSync(appendPath, "utf-8");
+
+				const tmp = await writePromptToTempFile(agent.name, combinedPrompt);
 				tmpPromptDir = tmp.dir;
 				tmpPromptPath = tmp.filePath;
 				args.push("--append-system-prompt", tmpPromptPath);
