@@ -749,6 +749,7 @@ export default function (pi: ExtensionAPI) {
 		name: "rad-subagents",
 		label: "RadSubagents",
 		description: [
+			"IMPORTANT: Subagent names (librarian, explorer, fixer, oracle, etc.) are NOT tool names. Always use this tool (rad-subagents) to delegate — never call a subagent name directly.",
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
