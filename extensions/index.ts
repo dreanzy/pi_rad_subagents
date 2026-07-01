@@ -16,6 +16,7 @@
  */
 
 import { spawn } from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -378,6 +379,7 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	parentSessionId: string | undefined,
 ): Promise<SingleResult> {
 	const pluginConfig = loadConfig(defaultCwd);
 	const resolvedAgentName = pluginConfig.agentAliases?.[agentName] ?? agentName;
@@ -416,6 +418,16 @@ async function runSingleAgent(
 		const currentModel = models[modelIdx];
 
 		const args: string[] = ["--mode", "json", "-p", "--no-session"];
+		if (parentSessionId) {
+			args.push(
+				"--session-id",
+				crypto
+					.createHash("sha256")
+					.update(parentSessionId + ":" + resolvedAgentName)
+					.digest("hex")
+					.slice(0, 16),
+			);
+		}
 		if (currentModel) args.push("--model", currentModel);
 		if (agent.tools && agent.tools.length > 0)
 			args.push("--tools", agent.tools.join(","));
@@ -753,6 +765,9 @@ export default function (pi: ExtensionAPI) {
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
+			// Get parent sessionId for deterministic subagent cache keys
+			const parentSessionId = ctx.sessionManager.getSessionId();
+
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
@@ -860,6 +875,7 @@ export default function (pi: ExtensionAPI) {
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
+						parentSessionId,
 					);
 					results.push(result);
 
@@ -966,6 +982,7 @@ export default function (pi: ExtensionAPI) {
 								}
 							},
 							makeDetails("parallel"),
+							parentSessionId,
 						);
 						allResults[index] = result;
 						emitParallelUpdate();
@@ -1003,6 +1020,7 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					onUpdate,
 					makeDetails("single"),
+					parentSessionId,
 				);
 				const isError = isFailedResult(result);
 				if (isError) {
