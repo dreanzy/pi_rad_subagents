@@ -88,6 +88,11 @@ let cachedConfig: RadSubagentsPluginConfig | null = null;
 /**
  * Load the rad-subagents plugin configuration.
  * Caches the result; call `clearConfigCache()` to reload.
+ * Merges project-level JSON on top of global JSON:
+ *   - agents: per-agent shallow merge (project overrides same keys)
+ *   - agentAliases: merged, project overrides
+ *   - orchestrator: merged, project overrides
+ *   - other top-level: project overrides global
  */
 export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 	if (cachedConfig) return cachedConfig;
@@ -95,47 +100,65 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 	const projectConfigPath = findProjectRadSubagentsConfig(cwd);
 	const globalConfigPath = findGlobalRadSubagentsConfig();
 
-	// Priority: project-level > global > defaults
-	const configPath = projectConfigPath ?? globalConfigPath;
+	// Read both configs
+	const projectConfig: RadSubagentsPluginConfig = projectConfigPath
+		? readJSONSafe(projectConfigPath)
+		: {};
+	const globalConfig: RadSubagentsPluginConfig = globalConfigPath
+		? readJSONSafe(globalConfigPath)
+		: {};
 
-	if (!configPath) {
-		cachedConfig = {};
-		return cachedConfig;
+	// Merge: global as base, project overrides
+	// agents: per-agent shallow merge
+	const mergedAgents: Record<string, AgentOverrideConfig> = {};
+	for (const key of new Set([
+		...Object.keys(globalConfig.agents ?? {}),
+		...Object.keys(projectConfig.agents ?? {}),
+	])) {
+		mergedAgents[key] = {
+			...globalConfig.agents?.[key],
+			...projectConfig.agents?.[key],
+		};
 	}
 
+	// agentAliases: merged, project overrides
+	const mergedAliases = {
+		...globalConfig.agentAliases,
+		...projectConfig.agentAliases,
+	};
+
+	// orchestrator: merged, project overrides
+	const mergedOrchestrator = {
+		...globalConfig.orchestrator,
+		...projectConfig.orchestrator,
+	};
+
+	const merged: RadSubagentsPluginConfig = {
+		// top-level: global as base, project overrides
+		...globalConfig,
+		...projectConfig,
+		// re-apply merged sub-objects
+		agents: Object.keys(mergedAgents).length > 0 ? mergedAgents : undefined,
+		agentAliases:
+			Object.keys(mergedAliases).length > 0 ? mergedAliases : undefined,
+		orchestrator:
+			Object.keys(mergedOrchestrator).length > 0
+				? mergedOrchestrator
+				: undefined,
+	};
+
+	cachedConfig = merged;
+	return merged;
+}
+
+/** Read and parse a JSON file, returning {} on failure. */
+function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 	try {
-		const raw = fs.readFileSync(configPath, "utf-8");
-		const parsed = JSON.parse(raw) as RadSubagentsPluginConfig;
-
-		// If both configs exist, merge agentAliases from global config into project config
-		// so global aliases also take effect when both are present (project overrides same keys)
-		if (projectConfigPath && globalConfigPath) {
-			try {
-				const globalRaw = fs.readFileSync(globalConfigPath, "utf-8");
-				const globalParsed = JSON.parse(globalRaw) as RadSubagentsPluginConfig;
-				if (globalParsed.agentAliases) {
-					parsed.agentAliases = {
-						...globalParsed.agentAliases,
-						...parsed.agentAliases, // project overrides same keys
-					};
-				}
-			} catch (globalErr) {
-				console.error(
-					`[rad-subagents] Failed to read global config at ${globalConfigPath}:`,
-					globalErr,
-				);
-			}
-		}
-
-		cachedConfig = parsed;
-		return parsed;
+		const raw = fs.readFileSync(filePath, "utf-8");
+		return JSON.parse(raw) as RadSubagentsPluginConfig;
 	} catch (err) {
-		console.error(
-			`[rad-subagents] Failed to parse config at ${configPath}:`,
-			err,
-		);
-		cachedConfig = {};
-		return cachedConfig;
+		console.error(`[rad-subagents] Failed to read config at ${filePath}:`, err);
+		return {};
 	}
 }
 
@@ -164,34 +187,41 @@ export function resolveAgentConfig(
 } {
 	const configOverride = pluginConfig.agents?.[agentName];
 
-	// Resolve model: override > frontmatter > defaultModel
-	const overrideModel = configOverride?.model;
+	// Resolve model: frontmatter > JSON > defaultModel > undefined (inherits main session)
 	const frontmatterModel = frontmatter.model;
+	const overrideModel = configOverride?.model;
 	const defaultModelVal = pluginConfig.defaultModel;
 
 	let primaryModel: string | undefined;
 	let modelPriority: string[] = [];
 
-	if (Array.isArray(overrideModel)) {
+	if (frontmatterModel) {
+		// frontmatter wins; JSON array items become fallbacks
+		primaryModel = frontmatterModel;
+		if (Array.isArray(overrideModel)) {
+			modelPriority = [...overrideModel];
+		} else if (typeof overrideModel === "string") {
+			modelPriority = [overrideModel];
+		}
+	} else if (Array.isArray(overrideModel)) {
 		const [first, ...rest] = overrideModel;
 		primaryModel = first;
 		modelPriority = rest;
 	} else if (typeof overrideModel === "string") {
 		primaryModel = overrideModel;
-	} else if (frontmatterModel) {
-		primaryModel = frontmatterModel;
 	} else if (defaultModelVal) {
 		primaryModel = defaultModelVal;
 	}
 
-	const toolsRaw = configOverride?.tools?.join(",") ?? frontmatter.tools ?? "";
+	// Non-model fields: frontmatter > JSON
+	const toolsRaw = frontmatter.tools ?? configOverride?.tools?.join(",") ?? "";
 	const tools = toolsRaw
 		.split(",")
 		.map((t: string) => t.trim())
 		.filter(Boolean);
 
 	const description =
-		configOverride?.description ?? frontmatter.description ?? agentName;
+		frontmatter.description ?? configOverride?.description ?? agentName;
 
 	return {
 		model: primaryModel,
