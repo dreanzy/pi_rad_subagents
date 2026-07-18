@@ -1361,11 +1361,9 @@ export default function (pi: ExtensionAPI) {
 		const agentSection = `
 ## Available Agents
 
-Delegate work using the \`rad-subagents()\` tool. Available agents:
-
 ${agentLines.join("\n")}
 
-When the user mentions @agentName or asks to delegate, use \`rad-subagents(agent: "name", task: "...")\` to delegate.`;
+Use \`rad-subagents()\` to delegate — triggered by @agentName mentions.`;
 
 		return {
 			systemPrompt: event.systemPrompt + agentSection,
