@@ -83,11 +83,9 @@ export function findGlobalRadSubagentsConfig(): string | null {
 	return fs.existsSync(globalPath) ? globalPath : null;
 }
 
-let cachedConfig: RadSubagentsPluginConfig | null = null;
 
 /**
  * Load the rad-subagents plugin configuration.
- * Caches the result; call `clearConfigCache()` to reload.
  * Merges project-level JSON on top of global JSON:
  *   - agents: per-agent shallow merge (project overrides same keys)
  *   - agentAliases: merged, project overrides
@@ -95,7 +93,6 @@ let cachedConfig: RadSubagentsPluginConfig | null = null;
  *   - other top-level: project overrides global
  */
 export function loadConfig(cwd: string): RadSubagentsPluginConfig {
-	if (cachedConfig) return cachedConfig;
 
 	const projectConfigPath = findProjectRadSubagentsConfig(cwd);
 	const globalConfigPath = findGlobalRadSubagentsConfig();
@@ -147,7 +144,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 				: undefined,
 	};
 
-	cachedConfig = merged;
 	return merged;
 }
 
@@ -162,10 +158,6 @@ function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 	}
 }
 
-/** Clear the config cache (useful for hot-reload scenarios). */
-export function clearConfigCache(): void {
-	cachedConfig = null;
-}
 
 // ── Agent config resolution ──────────────────────────────────────────
 

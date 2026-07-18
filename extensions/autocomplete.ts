@@ -139,6 +139,7 @@ function createAgentAutocompleteProvider(
  */
 export function registerAgentAutocomplete(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
 		ctx.ui.addAutocompleteProvider((current) =>
 			createAgentAutocompleteProvider(current, ctx.cwd),
 		);

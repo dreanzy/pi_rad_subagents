@@ -30,7 +30,16 @@ rad-subagents(agent: "explorer", task: "find all auth-related code")
 
 ```
 rad-subagents(tasks: [
-  { agent: "explorer", task: "find model files" },
+  { agent: "explorer", task: "find model files"   },
+  "orchestrator": {
+    "enabled": true
+  },
+  "agentAliases": {
+    "scout": "explorer",
+    "worker": "fixer",
+    "reviewer": "oracle"
+  }
+},
   { agent: "librarian", task: "check ORM docs" }
 ])
 ```
@@ -43,6 +52,16 @@ rad-subagents(chain: [
   { agent: "fixer", task: "implement based on {previous}" }
 ])
 ```
+
+### Orchestrator 模式
+
+```
+/orchestrate
+/orchestrate off
+```
+
+切换工作流管理器模式。启用后，LLM 充当编排者 — 规划、委托给专业 agent（`@explorer`、`@fixer`、`@oracle` 等），并整合结果。默认为关闭。
+
 
 ## Agent 舰队
 

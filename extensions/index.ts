@@ -33,72 +33,14 @@ import {
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
-import {
-	findProjectRadSubagentsConfig,
-	clearConfigCache,
-	loadConfig,
-} from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { registerAgentAutocomplete } from "./autocomplete.ts";
+import { registerOrchestrator } from "./orchestrator.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
-
-// ── Retryable error detection ────────────────────────────────────────
-
-const RETRYABLE_ERROR_PATTERNS = [
-	/rate_limit/i,
-	/rate limit/i,
-	/too many requests/i,
-	/insufficient_quota/i,
-	/overloaded/i,
-	/capacity/i,
-	/timeout/i,
-	/timed.?out/i,
-	/server_error/i,
-	/internal_server/i,
-	/5\\d{2}/,
-	/service.unavailable/i,
-	/temporarily.unavailable/i,
-	/model_ov/i,
-	/request.limit/i,
-];
-
-const NON_RETRYABLE_ERROR_PATTERNS = [
-	/invalid_api_key/i,
-	/unauthorized/i,
-	/forbidden/i,
-	/not_found/i,
-	/model_not_found/i,
-	/invalid_request/i,
-	/bad_request/i,
-	/context_length_exceeded/i,
-	/context_length/i,
-	/token_limit/i,
-	/prompt_too_long/i,
-	/safety/i,
-	/content_policy/i,
-];
-
-function isRetryableError(result: SingleResult): boolean {
-	if (result.exitCode !== 0) return true;
-
-	if (result.stopReason === "error") {
-		const errorMsg = (result.errorMessage || result.stderr || "").toLowerCase();
-
-		for (const pattern of NON_RETRYABLE_ERROR_PATTERNS) {
-			if (pattern.test(errorMsg)) return false;
-		}
-		for (const pattern of RETRYABLE_ERROR_PATTERNS) {
-			if (pattern.test(errorMsg)) return true;
-		}
-
-		return true;
-	}
-
-	return false;
-}
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -412,7 +354,7 @@ async function runSingleAgent(
 	if (agent.model) models.push(agent.model);
 	if (agent.modelPriority) models.push(...agent.modelPriority);
 
-	let lastResult: SingleResult | null = null;
+	let lastError: SingleResult | null = null;
 
 	for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
 		const currentModel = models[modelIdx];
@@ -455,13 +397,8 @@ async function runSingleAgent(
 			step,
 		};
 
-		let lastEmitTime = 0;
-		const EMIT_THROTTLE_MS = 50;
-		const emitUpdate = (force = false) => {
+		const emitUpdate = () => {
 			if (onUpdate) {
-				const now = Date.now();
-				if (!force && now - lastEmitTime < EMIT_THROTTLE_MS) return;
-				lastEmitTime = now;
 				onUpdate({
 					content: [
 						{
@@ -476,31 +413,13 @@ async function runSingleAgent(
 
 		try {
 			if (agent.systemPrompt.trim()) {
-				// ponytail: project APPEND_SYSTEM.md overrides global
-				let combinedPrompt = agent.systemPrompt;
-				const projectPath = path.join(
-					defaultCwd,
-					CONFIG_DIR_NAME,
-					"APPEND_SYSTEM.md",
-				);
-				const appendPath = fs.existsSync(projectPath)
-					? projectPath
-					: path.join(getAgentDir(), "APPEND_SYSTEM.md");
-				if (fs.existsSync(appendPath))
-					combinedPrompt += "\n\n" + fs.readFileSync(appendPath, "utf-8");
-
-				const tmp = await writePromptToTempFile(agent.name, combinedPrompt);
+				const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
 				tmpPromptDir = tmp.dir;
 				tmpPromptPath = tmp.filePath;
 				args.push("--append-system-prompt", tmpPromptPath);
 			}
 
-			// Append retry hint to task so the sub-agent sees which attempt this is
-			const taskWithRetry =
-				modelIdx > 0
-					? `[Retry ${modelIdx + 1}/${models.length} with model ${currentModel}]\n${task}`
-					: task;
-			args.push(`Task: ${taskWithRetry}`);
+			args.push(`Task: ${task}`);
 			let wasAborted = false;
 
 			const exitCode = await new Promise<number>((resolve) => {
@@ -513,9 +432,6 @@ async function runSingleAgent(
 				});
 				let buffer = "";
 
-				// Track the index of the last assistant message for in-place streaming updates
-				let lastAssistantIdx = -1;
-
 				const processLine = (line: string) => {
 					if (!line.trim()) return;
 					let event: any;
@@ -525,48 +441,10 @@ async function runSingleAgent(
 						return;
 					}
 
-					// message_start — begin tracking a new assistant message
-					if (event.type === "message_start" && event.message) {
-						const msg = event.message as Message;
-						if (msg.role === "assistant") {
-							if (lastAssistantIdx >= 0) {
-								// message_update arrived before message_start — update in-place
-								currentResult.messages[lastAssistantIdx] = msg;
-							} else {
-								currentResult.messages.push(msg);
-								lastAssistantIdx = currentResult.messages.length - 1;
-							}
-						}
-					}
-
-					// message_update — STREAMING: update assistant text token-by-token in real-time
-					if (event.type === "message_update" && event.message) {
-						const msg = event.message as Message;
-						if (msg.role === "assistant") {
-							if (lastAssistantIdx >= 0) {
-								// Update in-place so getFinalOutput/getDisplayItems see latest content
-								currentResult.messages[lastAssistantIdx] = msg;
-							} else {
-								// No message_start seen yet — push anyway
-								currentResult.messages.push(msg);
-								lastAssistantIdx = currentResult.messages.length - 1;
-							}
-							emitUpdate();
-						}
-					}
-
 					// message_end — finalize message
 					if (event.type === "message_end" && event.message) {
 						const msg = event.message as Message;
 						if (msg.role === "assistant") {
-							// Replace in-place (avoid duplicate push from message_start)
-							if (lastAssistantIdx >= 0) {
-								currentResult.messages[lastAssistantIdx] = msg;
-							} else {
-								currentResult.messages.push(msg);
-							}
-							lastAssistantIdx = -1;
-
 							currentResult.usage.turns++;
 							const usage = msg.usage;
 							if (usage) {
@@ -582,23 +460,20 @@ async function runSingleAgent(
 							if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 							if (msg.errorMessage)
 								currentResult.errorMessage = msg.errorMessage;
-						} else {
-							// Non-assistant messages (e.g., tool results). Push so nothing is lost.
-							currentResult.messages.push(msg);
 						}
-						emitUpdate(true); // always fire — final state matters
+						currentResult.messages.push(msg);
+						emitUpdate();
 					}
 
 					// tool_result_end — tool result messages
 					if (event.type === "tool_result_end" && event.message) {
 						const msg = event.message as Message;
-						// Avoid duplicate push when message_end already handled this
 						const last =
 							currentResult.messages[currentResult.messages.length - 1];
 						if (last?.role !== msg.role) {
 							currentResult.messages.push(msg);
 						}
-						emitUpdate(true); // always fire — final state matters
+						emitUpdate();
 					}
 				};
 
@@ -638,14 +513,12 @@ async function runSingleAgent(
 			currentResult.exitCode = exitCode;
 			if (wasAborted) throw new Error("Subagent was aborted");
 
-			if (!isRetryableError(currentResult)) {
+			if (exitCode === 0 && currentResult.stopReason !== "error" && currentResult.stopReason !== "aborted") {
 				return currentResult;
 			}
 
-			// Retryable error — fall through to save as last result and retry
-
-			// Failure — save as last result and retry with next model
-			lastResult = currentResult;
+			// Fall through to next model
+			lastError = currentResult;
 		} finally {
 			if (tmpPromptPath)
 				try {
@@ -664,7 +537,7 @@ async function runSingleAgent(
 
 	// All models exhausted — return the last failure
 	return (
-		lastResult ?? {
+		lastError ?? {
 			agent: agentName,
 			agentSource: agent.source,
 			task,
@@ -797,8 +670,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// --- Project agent confirmation ---
-			// --- Project agent confirmation ---
-			// This runs after orchestrate routing so params.agent is set if applicable.
 			if (
 				(agentScope === "project" || agentScope === "both") &&
 				confirmProjectAgents &&
@@ -1477,264 +1348,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── Orchestrator Mode ────────────────────────────────────────────────
-
-	/// Persist orchestrator state to .pi/rad-subagents.json
-	/// Reads/writes the `orchestrator.enabled` field in the config file.
-
-	function getOrchestratorConfigPath(cwd?: string): string {
-		// Priority: project-level config exists → write there; else → write global
-		const dir = cwd ?? process.cwd();
-		const projectConfig = findProjectRadSubagentsConfig(dir);
-		if (projectConfig) return projectConfig;
-		return path.join(getAgentDir(), "rad-subagents.json");
-	}
-
-	let orchestratorConfigPath = getOrchestratorConfigPath();
-
-	function loadOrchestratorEnabled(): boolean {
-		try {
-			const raw = fs.readFileSync(orchestratorConfigPath, "utf-8");
-			const data = JSON.parse(raw) as Record<string, unknown>;
-			const orch = data.orchestrator as { enabled?: boolean } | undefined;
-			return orch?.enabled === true;
-		} catch {
-			return false;
-		}
-	}
-
-	function saveOrchestratorEnabled(enabled: boolean): void {
-		try {
-			let data: Record<string, unknown> = {};
-			try {
-				const raw = fs.readFileSync(orchestratorConfigPath, "utf-8");
-				data = JSON.parse(raw) as Record<string, unknown>;
-			} catch {
-				// File doesn't exist or is invalid — start fresh
-			}
-
-			data.orchestrator = {
-				...(data.orchestrator as Record<string, unknown> | undefined),
-				enabled,
-			};
-
-			fs.mkdirSync(path.dirname(orchestratorConfigPath), { recursive: true });
-			fs.writeFileSync(
-				orchestratorConfigPath,
-				JSON.stringify(data, null, 2) + "\n",
-			);
-		} catch (err) {
-			console.error("[rad-subagents] Failed to save orchestrator state:", err);
-		}
-	}
-
-	let orchestratorEnabled = loadOrchestratorEnabled();
-
-	// Refresh config path when session starts
-	pi.on("session_start", (_event, ctx) => {
-		clearConfigCache();
-		orchestratorConfigPath = getOrchestratorConfigPath(ctx.cwd);
-		orchestratorEnabled = loadOrchestratorEnabled();
-		return undefined;
-	});
-
-	const ORCHESTRATOR_SYSTEM_PROMPT = `
-IMPORTANT: You are now in ORCHESTRATOR MODE.
-
-<Role>
-You are a workflow manager for coding work. Your job is to plan, schedule, delegate, monitor, reconcile, and verify specialist-agent work. You are not the default implementation worker.
-
-Optimize for quality, speed, cost, and reliability by dispatching the right specialist lanes, tracking task state, and integrating results into one coherent outcome.
-
-You delegate using the \`rad-subagents\` tool:
-
-- **Single delegation**: \`rad-subagents(agent: "explorer", task: "find all auth-related code")\`
-- **Parallel delegation**: \`rad-subagents(tasks: [{ agent: "explorer", task: "..." }, { agent: "librarian", task: "..." }])\`
-- **Chained delegation**: \`rad-subagents(chain: [{ agent: "explorer", task: "..." }, { agent: "fixer", task: "use {previous} to implement..." }])\`
-
-Always prefer delegation over doing the work yourself — the specialists are faster and more focused in their domains.
-</Role>
-
-<Agents>
-
-@explorer
-- **Lane**: Fast codebase recon that returns compressed context
-- **Capabilities**: Glob, grep, AST queries to locate files, symbols, patterns
-- **Permissions**: read_files only
-- **Stats**: 2x faster codebase search than you, half the cost
-- **Delegate when**: Need to discover what exists before planning • Parallel searches speed discovery • Need summarized map vs full contents • Broad/uncertain scope
-- **Don''t delegate when**: Know the path and need actual content • Need full file anyway • Single specific lookup • About to edit the file
-
-@librarian
-- **Lane**: External knowledge and library research, fast web research
-- **Role**: Authoritative source for current library docs, API references, examples, bug investigations, and web retrieval
-- **Stats**: 2x faster web research than you, half the cost
-- **Delegate when**: Libraries with frequent API changes (React, Next.js, AI SDKs) • Complex APIs needing official examples • Version-specific behavior matters • Unfamiliar library • Working on fixing a tricky bug and need latest web research information
-- **Don''t delegate when**: Standard usage you''re confident about • Simple stable APIs • General programming knowledge • Info already in conversation • Built-in language features
-- **Rule of thumb**: "How does this library work?" → @librarian. "How does programming work?" → answer directly.
-
-@oracle
-- **Lane**: Architecture, risk, debugging strategy, and review
-- **Role**: Strategic advisor for high-stakes decisions and persistent problems, code reviewer
-- **Permissions**: read_files only
-- **Capabilities**: Deep architectural reasoning, system-level trade-offs, complex debugging, code review, simplification, maintainability review
-- **Stats**: 5x better decision maker and problem solver than you, same cost
-- **Delegate when**: Major architectural decisions with long-term impact • Problems persisting after 2+ fix attempts • High-risk multi-system refactors • Complex debugging with unclear root cause • Security/scalability/data-integrity decisions • Code review passes • Code needs simplification or YAGNI scrutiny
-- **Don''t delegate when**: Routine decisions you''re confident about • First bug fix attempt • Straightforward trade-offs • Time-sensitive good-enough decisions
-- **Rule of thumb**: Need senior architect review? → @oracle. Routine coordination? → handle directly.
-
-@designer
-- **Lane**: UI/UX design, related edits, design polish and review
-- **Permissions**: read_files, write_files
-- **Capabilities**: Good design taste, visual relevant edits, interactions, responsive layouts, design systems with aesthetic intent
-- **Owns**: Visual and interaction quality — layout, hierarchy, spacing, motion, affordances, responsive behavior, and overall feel
-- **Weakness**: Copywriting. Ask designer to use grounded, normal wording, then review/fix copy after design work without changing visual intent.
-- **Delegate when**: User-facing interfaces needing polish • Responsive layouts • UX-critical components (forms, nav, dashboards) • Visual consistency systems • Animations/micro-interactions • Refining functional→delightful
-- **Don''t delegate when**: Backend/logic with no visual • Quick prototypes where design doesn''t matter yet.
-- **Rule of thumb**: Users see it and polish matters? → @designer. Headless implementation? → @fixer.
-
-@fixer
-- **Lane**: Bounded implementation and execution
-- **Role**: Fast execution specialist for well-defined tasks
-- **Permissions**: read_files, write_files
-- **Stats**: 2x faster code edits, half your cost
-- **Weakness**: design, taste
-- **Delegate when**: Implementation work after you''ve thought and triaged first • Multi-file changes that can be scoped per folder and parallelized via multiple @fixers • Well-defined mechanical tasks
-- **Don''t delegate when**: Needs discovery/research/decisions • Single small change (<20 lines, one file) • Unclear requirements needing iteration • Requires design taste or visual judgment
-- **Rule of thumb**: Headless/mechanical implementation → @fixer. User-visible design or polish → @designer. If @designer already set direction, @fixer may only do bounded mechanical follow-up that preserves that design exactly.
-
-@observer
-- **Lane**: Visual/media analysis isolated from main context
-- **Role**: Visual analysis specialist for images, PDFs, and diagrams
-- **Permissions**: read_files only
-- **Capabilities**: Interprets images, screenshots, PDFs, and diagrams; extracts UI elements, layouts, text, relationships
-- **Delegate when**: Need to analyze a multimedia file • Extract information from a screenshot, diagram, or PDF
-- **Don''t delegate when**: Plain text files that \`read\` can handle directly • Files that need editing afterward
-- **Rule of thumb**: Even if you support vision, delegate visual analysis — it isolates large image/PDF bytes from your context, returning only concise structured text.
-
-</Agents>
-
-<Workflow>
-
-## 1. Understand
-Parse request: explicit requirements + implicit needs.
-
-## 2. Path Selection
-Evaluate approach by: quality, speed, and cost. Choose the path that optimizes all three.
-
-## 3. Delegation Check
-Review available agents and lane rules.
-
-**Dispatch efficiency:**
-- Reference paths/lines, don''t paste files (\`src/app.ts:42\` not full contents)
-- Briefly note the delegation goal before each call (one line)
-- For trivial conversational answers or tiny mechanical edits, direct execution is allowed when delegation overhead would clearly dominate
-- Record task state and ownership across delegations
-- Reconcile results, resolve conflicts, and gate dependent work
-
-**File Operations Rules:**
-- Prefer dedicated file tools for normal code work: \`grep\`/\`find\` for discovery, \`read\` for contents, and \`edit\`/\`write\` for targeted changes.
-- Use \`bash\` for execution and automation: git, package managers, tests, builds, scripts, diagnostics.
-- Shell is acceptable for bulk or mechanical filesystem changes when it is clearer or safer than many individual edits.
-- Do not use \`cat\`/\`head\`/\`tail\`/\`sed\`/\`awk\` to read code — use \`read\`/\`grep\`.
-
-## 4. Plan and Parallelize
-Build a short work graph before dispatching:
-- Independent lanes that can run now
-- Dependency-ordered lanes that must wait
-- Advisory ownership for write-capable lanes
-- Verification/review lanes that run after implementation
-
-Can tasks be split into parallel specialist work?
-- Multiple @explorer searches across different domains?
-- @explorer + @librarian research in parallel?
-- Multiple @fixer instances for faster, scoped implementation?
-- @observer + @explorer in parallel (visual analysis + code search)?
-
-Balance: respect dependencies, avoid parallelizing what must be sequential, and avoid overlapping write ownership.
-
-**Background Task Discipline:**
-- Use \`rad-subagents()\` (single) or \`rad-subagents(tasks: ..., agent: ...)\` for delegated work.
-- Track each task''s specialist, objective, and file/topic ownership.
-- Continue orchestrating only on non-overlapping work; otherwise briefly report what was launched and stop.
-- Before making edits yourself or launching another writer task, compare against running task scopes.
-- Parallel delegation is allowed only when their write scopes do not conflict.
-- Before final response, reconcile all task results.
-
-**Design Handoff Discipline:**
-- When @designer completes UI/UX work, treat layout, spacing, hierarchy, motion, color, affordances, and component feel as intentional design output.
-- Do not later simplify, normalize, or refactor in ways that flatten the design.
-- Review and improve user-facing copy after designer work, because designer copy may be weak. Copy edits must preserve the designer''s visual structure and interaction intent.
-- If follow-up work is purely mechanical and preserves the design exactly, @fixer can handle it. If it requires visual judgment or changes the feel, route it back to @designer.
-
-## 5. Verify
-- Run relevant checks/diagnostics for the change
-- Route code review to @oracle for non-trivial changes
-- Route UI/UX validation to @designer
-- Confirm specialists completed successfully
-- Verify solution meets requirements
-
-</Workflow>
-
-<Communication>
-
-## Clarity Over Assumptions
-- If request is vague or has multiple valid interpretations, ask a targeted question before proceeding
-- Don''t guess at critical details (file paths, API choices, architectural decisions)
-- Do make reasonable assumptions for minor details and state them briefly
-
-## Concise Execution
-- Answer directly, no preamble
-- Don''t summarize what you did unless asked
-- Don''t explain code unless asked
-- Brief delegation notices: "Checking docs via @librarian..." not "I''m going to delegate to @librarian because..."
-
-## No Flattery
-Never: "Great question!" "Excellent idea!" "Smart choice!" or any praise of user input.
-
-## Honest Pushback
-When the user''s approach seems problematic:
-- State concern + alternative concisely
-- Ask if they want to proceed anyway
-- Don''t lecture, don''t blindly implement
-
-## Example
-**Bad:** "Great question! Let me think about the best approach here. I''m going to delegate to @librarian to check the latest React documentation, and then I''ll implement the solution for you."
-
-**Good:** "Checking React docs via @librarian..."
-[continues scheduling or integration]
-
-</Communication>
-`;
-	pi.registerCommand("orchestrate", {
-		description:
-			"Toggle orchestrator mode on/off. In orchestrator mode the assistant delegates work to specialist agents via rad-subagents.",
-		handler: async (_args, cmdCtx) => {
-			orchestratorEnabled = !orchestratorEnabled;
-			saveOrchestratorEnabled(orchestratorEnabled);
-
-			const message = orchestratorEnabled
-				? "Orchestrator mode ON — I will delegate work to specialist agents. Use /orchestrate again to disable."
-				: "Orchestrator mode OFF — I will work directly. Use /orchestrate to re-enable.";
-
-			cmdCtx.ui.notify(message, "info");
-		},
-	});
-
-	// Inject orchestrator system prompt before each turn when enabled
-	pi.on("before_agent_start", (event) => {
-		if (!orchestratorEnabled) return undefined;
-
-		return {
-			systemPrompt: event.systemPrompt
-				? ORCHESTRATOR_SYSTEM_PROMPT + "\n\n" + event.systemPrompt
-				: ORCHESTRATOR_SYSTEM_PROMPT,
-		};
-	});
-
-	// Register agent @-mention autocomplete
-	registerAgentAutocomplete(pi);
-
 	// ── Always-on agent descriptions for system prompt ──────────────────────
 	// Lets the LLM know about available agents even without orchestrator mode.
 	pi.on("before_agent_start", (event, ctx) => {
@@ -1798,4 +1411,10 @@ When the user mentions @agentName or asks to delegate, use \`rad-subagents(agent
 			return new Text(text, 0, 0);
 		},
 	);
+
+	// Register agent @-mention autocomplete
+	registerAgentAutocomplete(pi);
+
+	// Register orchestrator mode (optional)
+	registerOrchestrator(pi);
 }

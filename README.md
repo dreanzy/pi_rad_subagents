@@ -30,7 +30,16 @@ rad-subagents(agent: "explorer", task: "find all auth-related code")
 
 ```
 rad-subagents(tasks: [
-  { agent: "explorer", task: "find model files" },
+  { agent: "explorer", task: "find model files"   },
+  "orchestrator": {
+    "enabled": true
+  },
+  "agentAliases": {
+    "scout": "explorer",
+    "worker": "fixer",
+    "reviewer": "oracle"
+  }
+},
   { agent: "librarian", task: "check ORM docs" }
 ])
 ```
@@ -43,6 +52,16 @@ rad-subagents(chain: [
   { agent: "fixer", task: "implement based on {previous}" }
 ])
 ```
+
+### Orchestrator mode
+
+```
+/orchestrate
+/orchestrate off
+```
+
+Toggle workflow manager mode. When enabled, the LLM acts as orchestrator — plans, delegates to specialists (`@explorer`, `@fixer`, `@oracle`, etc.), and integrates results. Off by default.
+
 
 ## Agent Fleet
 
