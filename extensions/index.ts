@@ -513,7 +513,11 @@ async function runSingleAgent(
 			currentResult.exitCode = exitCode;
 			if (wasAborted) throw new Error("Subagent was aborted");
 
-			if (exitCode === 0 && currentResult.stopReason !== "error" && currentResult.stopReason !== "aborted") {
+			if (
+				exitCode === 0 &&
+				currentResult.stopReason !== "error" &&
+				currentResult.stopReason !== "aborted"
+			) {
 				return currentResult;
 			}
 
@@ -1386,9 +1390,8 @@ Use \`rad-subagents()\` to delegate — triggered by @agentName mentions.`;
 
 		// Check if agent exists directly or via alias (so @scout still works)
 		const { agents } = discoverAgents(ctx.cwd, "both");
-		const inputConfig = loadConfig(ctx.cwd);
 		const resolvedInputAgent =
-			inputConfig.agentAliases?.[agentName] ?? agentName;
+			loadConfig(ctx.cwd).agentAliases?.[agentName] ?? agentName;
 		if (!agents.find((a) => a.name === resolvedInputAgent)) return;
 
 		return {

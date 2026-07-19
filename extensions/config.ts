@@ -14,6 +14,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
+// ── TTL cache ────────────────────────────────────────────────────────
+const configCache = new Map<
+	string,
+	{ data: RadSubagentsPluginConfig; expiry: number }
+>();
+const CONFIG_CACHE_TTL = 5000; // 5 seconds
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface AgentOverrideConfig {
@@ -83,7 +90,6 @@ export function findGlobalRadSubagentsConfig(): string | null {
 	return fs.existsSync(globalPath) ? globalPath : null;
 }
 
-
 /**
  * Load the rad-subagents plugin configuration.
  * Merges project-level JSON on top of global JSON:
@@ -93,6 +99,9 @@ export function findGlobalRadSubagentsConfig(): string | null {
  *   - other top-level: project overrides global
  */
 export function loadConfig(cwd: string): RadSubagentsPluginConfig {
+	const now = Date.now();
+	const cached = configCache.get(cwd);
+	if (cached && now < cached.expiry) return cached.data;
 
 	const projectConfigPath = findProjectRadSubagentsConfig(cwd);
 	const globalConfigPath = findGlobalRadSubagentsConfig();
@@ -144,6 +153,7 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 				: undefined,
 	};
 
+	configCache.set(cwd, { data: merged, expiry: now + CONFIG_CACHE_TTL });
 	return merged;
 }
 
@@ -157,7 +167,6 @@ function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 		return {};
 	}
 }
-
 
 // ── Agent config resolution ──────────────────────────────────────────
 

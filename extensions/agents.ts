@@ -23,6 +23,13 @@ import {
 	isAgentDisabled,
 } from "./config.ts";
 
+// ── TTL cache ────────────────────────────────────────────────────────
+const discoverCache = new Map<
+	string,
+	{ data: AgentDiscoveryResult; expiry: number }
+>();
+const DISCOVER_CACHE_TTL = 5000; // 5 seconds
+
 export type AgentScope = "user" | "project" | "both";
 
 export interface AgentConfig {
@@ -133,9 +140,15 @@ export function discoverAgents(
 	cwd: string,
 	scope: AgentScope,
 ): AgentDiscoveryResult {
+	const cacheKey = `${cwd}:${scope}`;
+	const now = Date.now();
+	const cached = discoverCache.get(cacheKey);
+	if (cached && now < cached.expiry) return cached.data;
+
 	const pluginConfig = loadConfig(cwd);
 	const userDir = path.join(getAgentDir(), "agents");
-	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
+	const projectAgentsDir =
+		scope === "user" ? null : findNearestProjectAgentsDir(cwd);
 
 	const userAgents =
 		scope === "project" ? [] : loadAgentsFromDir(userDir, "user", pluginConfig);
@@ -161,5 +174,13 @@ export function discoverAgents(
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
 
-	return { agents: Array.from(agentMap.values()), projectAgentsDir };
+	const result: AgentDiscoveryResult = {
+		agents: Array.from(agentMap.values()),
+		projectAgentsDir,
+	};
+	discoverCache.set(cacheKey, {
+		data: result,
+		expiry: now + DISCOVER_CACHE_TTL,
+	});
+	return result;
 }

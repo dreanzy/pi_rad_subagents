@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadConfig, findProjectRadSubagentsConfig } from "./config.ts";
 
 const ORCHESTRATOR_SYSTEM_PROMPT = `
@@ -79,29 +79,27 @@ function saveOrchestratorEnabled(enabled: boolean, cwd: string): void {
 }
 
 export function registerOrchestrator(pi: ExtensionAPI): void {
-	let orchestratorEnabled = false;
-
-	pi.on("session_start", (_event, ctx) => {
-		orchestratorEnabled = loadOrchestratorEnabled(ctx.cwd);
-		return undefined;
-	});
+	// Per-session override set by /orchestrate command; null = use config file.
+	let sessionOverride: boolean | null = null;
 
 	pi.registerCommand("orchestrate", {
 		description: "Toggle orchestrator mode. Usage: /orchestrate [on|off]",
 		handler: async (args, ctx) => {
 			const arg = args.trim().toLowerCase();
-			if (arg === "off" || arg === "0" || arg === "false" || arg === "disable") {
-				orchestratorEnabled = false;
-			} else {
-				orchestratorEnabled = true;
-			}
-			saveOrchestratorEnabled(orchestratorEnabled, ctx.cwd);
-			ctx.ui.notify(`Orchestrator mode: ${orchestratorEnabled ? "on" : "off"}`, "info");
+			const enabled =
+				arg === "off" || arg === "0" || arg === "false" || arg === "disable"
+					? false
+					: true;
+			sessionOverride = enabled;
+			saveOrchestratorEnabled(enabled, ctx.cwd);
+			ctx.ui.notify(`Orchestrator mode: ${enabled ? "on" : "off"}`, "info");
 		},
 	});
 
-	pi.on("before_agent_start", (event) => {
-		if (!orchestratorEnabled) return undefined;
+	pi.on("before_agent_start", (event, ctx) => {
+		// Override takes precedence; fall back to per-project config (TTL-cached).
+		const enabled = sessionOverride ?? loadOrchestratorEnabled(ctx.cwd);
+		if (!enabled) return undefined;
 		return {
 			systemPrompt: ORCHESTRATOR_SYSTEM_PROMPT + "\n\n" + event.systemPrompt,
 		};
