@@ -1352,40 +1352,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── Always-on agent descriptions for system prompt ──────────────────────
-	// Lets the LLM know about available agents even without orchestrator mode.
-	// Cache the agent section string so we don't rebuild on every agent start.
-	let cachedAgentSection: string | null = null;
-	let cachedAgentCwd: string | null = null;
-
-	pi.on("before_agent_start", (event, ctx) => {
-		// Rebuild cache only when cwd changes
-		if (!cachedAgentSection || cachedAgentCwd !== ctx.cwd) {
-			const { agents } = discoverAgents(ctx.cwd, "both");
-			if (agents.length === 0) {
-				cachedAgentSection = "";
-				cachedAgentCwd = ctx.cwd;
-				return;
-			}
-			const agentLines = agents.map(
-				(a) => `- @${a.name}: ${a.description || a.name}`,
-			);
-			cachedAgentSection = `
-## Available Agents
-
-${agentLines.join("\n")}
-
-Use \`rad-subagents()\` to delegate — triggered by @agentName mentions.`;
-			cachedAgentCwd = ctx.cwd;
-		}
-
-		if (!cachedAgentSection) return;
-
-		return {
-			systemPrompt: event.systemPrompt + cachedAgentSection,
-		};
-	});
-
 	// ── @-mention → rad-subagents() instruction transform ───────────────────
 	// Rewrites "@agentName task" to an explicit tool instruction so the LLM
 	// calls rad-subagents() naturally, without custom execution logic.
