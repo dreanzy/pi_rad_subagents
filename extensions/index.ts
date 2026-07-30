@@ -180,6 +180,7 @@ function renderSingleResult(
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {
 	const isError = isFailedResult(r);
+	const terminalError = r.stopReason === "error" || r.stopReason === "aborted";
 	const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	const displayItems = getDisplayItems(r.messages);
 	const finalOutput = getFinalOutput(r.messages);
@@ -187,7 +188,7 @@ function renderSingleResult(
 	if (expanded) {
 		const container = new Container();
 		let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-		if (isError && r.stopReason)
+		if (isError && terminalError)
 			header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 		container.addChild(new Text(header, 0, 0));
 		if (isError && r.errorMessage)
@@ -259,7 +260,7 @@ function renderSingleResult(
 
 	// Collapsed
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
-	if (isError && r.stopReason)
+	if (isError && terminalError)
 		text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	if (r.rejected) {
 		text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
