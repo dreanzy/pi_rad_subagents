@@ -127,7 +127,7 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		};
 	}
 
-	// agentAliases: merged, project overrides
+	// agentAliases: global → project override
 	const mergedAliases = {
 		...globalConfig.agentAliases,
 		...projectConfig.agentAliases,
