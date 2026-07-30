@@ -586,6 +586,12 @@ export async function runSingleAgent(
 					const killProc = () => {
 						wasAborted = true;
 						proc.kill("SIGTERM");
+						// Windows: proc.kill only terminates the direct child, not its descendants
+						if (process.platform === "win32" && proc.pid !== undefined) {
+							spawn("taskkill", ["/T", "/F", "/PID", String(proc.pid)], {
+								stdio: "ignore",
+							});
+						}
 						setTimeout(() => {
 							if (!proc.killed) proc.kill("SIGKILL");
 						}, 5000);
