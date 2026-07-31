@@ -172,6 +172,10 @@ export function registerOrchestrator(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
+		// Subagent child processes get their own agent-specific system prompt
+		// (agent.md body + rejection contract) — the orchestrator template is
+		// for the main session only.
+		if (process.env.PI_SUBAGENT_CHILD === "1") return undefined;
 		// Override takes precedence; fall back to per-project config (TTL-cached).
 		const enabled = sessionOverride ?? loadOrchestratorEnabled(ctx.cwd);
 		if (!enabled) return undefined;
