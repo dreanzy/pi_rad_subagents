@@ -172,6 +172,15 @@ function aggregateUsage(results: SingleResult[]): {
 
 // ── Rendered result components ──────────────────────────────────────
 
+/**
+ * Status icon for a single agent result: ⏳ running, ✓ success, ✗ failed.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
+function resultIcon(r: SingleResult, theme: any): string {
+	if (r.exitCode === -1) return theme.fg("warning", "⏳");
+	return isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderSingleResult(
 	r: SingleResult,
@@ -179,9 +188,10 @@ function renderSingleResult(
 	expanded: boolean,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {
-	const isError = isFailedResult(r);
+	const isRunning = r.exitCode === -1;
+	const isError = !isRunning && isFailedResult(r);
 	const terminalError = r.stopReason === "error" || r.stopReason === "aborted";
-	const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	const icon = resultIcon(r, theme);
 	const displayItems = getDisplayItems(r.messages);
 	const finalOutput = getFinalOutput(r.messages);
 
@@ -219,7 +229,13 @@ function renderSingleResult(
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
 		if (displayItems.length === 0 && !finalOutput) {
-			container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
+			container.addChild(
+				new Text(
+					theme.fg("muted", isRunning ? "(running...)" : "(no output)"),
+					0,
+					0,
+				),
+			);
 		} else {
 			for (const item of displayItems) {
 				if (item.type === "toolCall")
@@ -267,7 +283,7 @@ function renderSingleResult(
 	} else if (isError && r.errorMessage) {
 		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
 	} else if (displayItems.length === 0) {
-		text += `\n${theme.fg("muted", "(no output)")}`;
+		text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
 	} else {
 		text += `\n${renderDisplayItems(displayItems, theme, COLLAPSED_ITEM_COUNT)}`;
 		if (displayItems.length > COLLAPSED_ITEM_COUNT)
@@ -335,10 +351,13 @@ function renderChainResults(
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {
 	const successCount = results.filter((r) => r.exitCode === 0).length;
+	const runningCount = results.filter((r) => r.exitCode === -1).length;
 	const icon =
-		successCount === results.length
-			? theme.fg("success", "✓")
-			: theme.fg("error", "✗");
+		runningCount > 0
+			? theme.fg("warning", "⏳")
+			: successCount === results.length
+				? theme.fg("success", "✓")
+				: theme.fg("error", "✗");
 
 	if (expanded) {
 		const container = new Container();
@@ -354,8 +373,7 @@ function renderChainResults(
 		);
 
 		for (const r of results) {
-			const rIcon =
-				r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+			const rIcon = resultIcon(r, theme);
 
 			container.addChild(new Spacer(1));
 			container.addChild(
@@ -386,14 +404,13 @@ function renderChainResults(
 		theme.fg("toolTitle", theme.bold("chain ")) +
 		theme.fg("accent", `${successCount}/${results.length} steps`);
 	for (const r of results) {
-		const rIcon =
-			r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+		const rIcon = resultIcon(r, theme);
 		const displayItems = getDisplayItems(r.messages);
 		text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
 		if (r.rejected) {
 			text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
 		} else if (displayItems.length === 0) {
-			text += `\n${theme.fg("muted", "(no output)")}`;
+			text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
 		} else {
 			text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
 		}
@@ -439,9 +456,7 @@ function renderParallelResults(
 		);
 
 		for (const r of results) {
-			const rIcon = isFailedResult(r)
-				? theme.fg("error", "✗")
-				: theme.fg("success", "✓");
+			const rIcon = resultIcon(r, theme);
 
 			container.addChild(new Spacer(1));
 			container.addChild(
@@ -468,12 +483,7 @@ function renderParallelResults(
 	// Collapsed or still running
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
 	for (const r of results) {
-		const rIcon =
-			r.exitCode === -1
-				? theme.fg("warning", "⏳")
-				: isFailedResult(r)
-					? theme.fg("error", "✗")
-					: theme.fg("success", "✓");
+		const rIcon = resultIcon(r, theme);
 		const displayItems = getDisplayItems(r.messages);
 		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
 		if (r.rejected) {
