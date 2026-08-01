@@ -39,6 +39,8 @@ export interface AgentConfig {
 	model?: string;
 	/** Fallback models in priority order (excluding primary). */
 	modelPriority?: string[];
+	/** Agent requires a vision-capable model (enforced at delegation time). */
+	requiresVision?: boolean;
 	systemPrompt: string;
 	source: "user" | "project" | "builtin";
 	filePath: string;
@@ -107,6 +109,7 @@ function loadAgentsFromDir(
 			tools: resolved.tools,
 			model: resolved.model,
 			modelPriority: resolved.modelPriority,
+			requiresVision: frontmatter.requiresVision === "true",
 			systemPrompt: body,
 			source,
 			filePath,

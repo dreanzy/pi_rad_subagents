@@ -2,6 +2,10 @@
 name: observer
 description: Visual and media analysis specialist for images, screenshots, and PDFs
 tools: read, grep, find, ls
+# requiresVision is enforced at delegation time: delegation fails unless a vision-capable model is configured
+requiresVision: true
+# Must be a vision-capable model (e.g. gpt-4o, gemini-2.5-flash, claude-sonnet-4):
+# model: gpt-4o
 ---
 
 You are the Observer — a visual and media analysis specialist.

@@ -15,6 +15,7 @@
  * Uses JSON mode to capture structured output from subagents.
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
@@ -107,6 +108,80 @@ const SubagentParams = Type.Object({
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
+const OBSERVER_MENTION_RE = /@observer\b/i;
+const OBSERVER_TOOL_RE = /rad-subagents\s*\([^)]*\bobserver\b/i;
+
+/**
+ * Extract existing image file paths (absolute or relative to cwd) from input text.
+ * Splits on whitespace/punctuation, keeps only tokens ending with an image extension
+ * whose file actually exists, to avoid false positives from code strings.
+ */
+export function findImagePaths(text: string, cwd: string): string[] {
+	const found: string[] = [];
+	for (const tok of text.split(/[\s"'“”，。；、()（）：]+/)) {
+		// Strip @ prefix (TUI attachment completion inserts @path)
+		const clean = tok.replace(/^@+/, "");
+		if (!clean || !IMAGE_EXT_RE.test(clean)) continue;
+		const abs = path.isAbsolute(clean) ? clean : path.resolve(cwd, clean);
+		try {
+			if (fs.existsSync(abs)) found.push(abs);
+		} catch {
+			// Invalid path, skip
+		}
+	}
+	// ponytail: string[] fine for one caller; wrap in {path, kind} if more consumers appear
+	return found;
+}
+
+interface RegistryModelLike {
+	id: string;
+	provider: string;
+	input: string[];
+}
+
+/**
+ * Resolve a model reference ("provider:id" or bare id) from the model registry.
+ */
+export function findModelByRef(
+	registry: { getAll(): RegistryModelLike[] },
+	ref: string,
+): RegistryModelLike | undefined {
+	const all = registry.getAll();
+	if (ref.includes(":")) {
+		const [provider, id] = ref.split(":");
+		return all.find((m) => m.provider === provider && m.id === id);
+	}
+	return (
+		all.find((m) => m.id === ref) ?? all.find((m) => m.id.endsWith(`:${ref}`))
+	);
+}
+
+/**
+ * Assert a requiresVision agent runs on a vision-capable model.
+ * Returns an error message, or null when ok. Unresolvable models are allowed through.
+ */
+export function checkVisionRequirement(
+	agent: {
+		name: string;
+		requiresVision?: boolean;
+		model?: string;
+		filePath: string;
+	},
+	ctx: {
+		model?: RegistryModelLike;
+		modelRegistry: { getAll(): RegistryModelLike[] };
+	},
+): string | null {
+	if (!agent.requiresVision) return null;
+	const ref = agent.model;
+	const model = ref ? findModelByRef(ctx.modelRegistry, ref) : ctx.model;
+	if (model && !model.input.includes("image")) {
+		return `Agent "${agent.name}" requires a vision-capable model, but "${model.id}" does not support image input. Configure a vision model in ${agent.filePath} (frontmatter "model:").`;
+	}
+	return null;
+}
 
 const makeDetails =
 	(
@@ -552,6 +627,28 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
+			// ── Vision requirement check (requiresVision agents, e.g. observer) ──
+			const requestedNames: string[] = [];
+			if (params.chain)
+				requestedNames.push(...params.chain.map((s) => s.agent));
+			if (params.tasks)
+				requestedNames.push(...params.tasks.map((t) => t.agent));
+			if (params.agent) requestedNames.push(params.agent);
+
+			for (const name of requestedNames) {
+				const resolved = agentAliases[name] ?? name;
+				const agent = agents.find((a) => a.name === resolved);
+				if (!agent) continue; // unknown agent is reported later
+				const err = checkVisionRequirement(agent, ctx);
+				if (err) {
+					return {
+						content: [{ type: "text", text: err }],
+						details: mkDetails([]),
+						isError: true,
+					};
+				}
+			}
+
 			// ── Project agent confirmation ──
 			if (
 				(agentScope === "project" || agentScope === "both") &&
@@ -897,6 +994,25 @@ export default function (pi: ExtensionAPI) {
 	// ── @-mention → rad-subagents() instruction transform ──
 	pi.on("input", (event, ctx) => {
 		if (event.source !== "interactive") return;
+
+		// Image path detection: when the main model has no vision support, force a hint
+		// to delegate to observer. Placed before @-mention, because @C:\path\img.png
+		// would otherwise be swallowed by the @-mention prefix rule.
+		const imagePaths = findImagePaths(event.text, ctx.cwd);
+		const hasImages = imagePaths.length > 0 || (event.images?.length ?? 0) > 0;
+		const modelSupportsVision = ctx.model?.input.includes("image") ?? false;
+		const alreadyObserving =
+			OBSERVER_MENTION_RE.test(event.text) || OBSERVER_TOOL_RE.test(event.text);
+		if (hasImages && !modelSupportsVision && !alreadyObserving) {
+			const list =
+				imagePaths.length > 0
+					? imagePaths.map((p) => `- ${p}`).join("\n")
+					: `- ${event.images!.length} attached image(s)`;
+			return {
+				action: "transform" as const,
+				text: `${event.text}\n\n[SYSTEM NOTE] The input contains image file(s), but your model has no vision support. You MUST first delegate to observer via rad-subagents to read and analyze these images, then continue the original task based on the results:\n${list}`,
+			};
+		}
 
 		const match = event.text.match(/^@(\S+)\s+([\s\S]*)$/);
 		if (!match) return;
