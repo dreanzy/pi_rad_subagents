@@ -589,6 +589,7 @@ export default function (pi: ExtensionAPI) {
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").`,
+			`If an agent name you need (e.g. referenced by a skill) is not in the list above, try it anyway — agentAliases config may map it to a real agent. On failure, the tool reports available aliases.`,
 		].join(" "),
 		parameters: SubagentParams,
 

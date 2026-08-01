@@ -409,13 +409,18 @@ export async function runSingleAgent(
 
 	if (!agent) {
 		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
+		const aliases = Object.entries(pluginConfig.agentAliases ?? {})
+			.filter(([, target]) => agents.some((a) => a.name === target))
+			.map(([alias, target]) => `${alias}->${target}`)
+			.join(", ");
+		const aliasHint = aliases ? ` Available aliases: ${aliases}.` : "";
 		return {
 			agent: agentName,
 			agentSource: "unknown",
 			task,
 			exitCode: 1,
 			messages: [],
-			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
+			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.${aliasHint}`,
 			usage: {
 				input: 0,
 				output: 0,
