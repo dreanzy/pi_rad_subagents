@@ -56,6 +56,12 @@ const TaskItem = Type.Object({
 	cwd: Type.Optional(
 		Type.String({ description: "Working directory for the agent process" }),
 	),
+	timeoutMs: Type.Optional(
+		Type.Number({
+			description:
+				"Per-task timeout in milliseconds. Set based on task complexity (e.g. 60_000 for a quick lookup, 600_000 for deep research). The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+		}),
+	),
 });
 
 const ChainItem = Type.Object({
@@ -65,6 +71,12 @@ const ChainItem = Type.Object({
 	}),
 	cwd: Type.Optional(
 		Type.String({ description: "Working directory for the agent process" }),
+	),
+	timeoutMs: Type.Optional(
+		Type.Number({
+			description:
+				"Per-step timeout in milliseconds. The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+		}),
 	),
 });
 
@@ -103,6 +115,12 @@ const SubagentParams = Type.Object({
 	cwd: Type.Optional(
 		Type.String({
 			description: "Working directory for the agent process (single mode)",
+		}),
+	),
+	timeoutMs: Type.Optional(
+		Type.Number({
+			description:
+				"Default timeout in milliseconds applied to all tasks/steps. Estimate from complexity: ~30_000 for trivial lookups, 60_000-120_000 for typical research, up to 600_000 for deep multi-step work. At the deadline the subagent is killed and partial output is returned with stopReason 'timeout' — the orchestrator can then retry with a bigger budget or a narrower task. Per-task timeoutMs overrides this. Omit for no timeout. IMPORTANT: always set a timeout — without one, a stuck subagent (e.g. hung network call) blocks forever.",
 		}),
 	),
 });
@@ -590,6 +608,7 @@ export default function (pi: ExtensionAPI) {
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").`,
 			`If an agent name you need (e.g. referenced by a skill) is not in the list above, try it anyway — agentAliases config may map it to a real agent. On failure, the tool reports available aliases.`,
+			"TIMEOUTS: always pass timeoutMs (top-level default or per-task) estimated from task complexity — the subagent is killed at the deadline and partial output returned with stopReason 'timeout'; without it a hung subagent blocks forever.",
 		].join(" "),
 		parameters: SubagentParams,
 
@@ -725,6 +744,7 @@ export default function (pi: ExtensionAPI) {
 						chainUpdate,
 						mkDetails,
 						parentSessionId,
+						step.timeoutMs ?? params.timeoutMs,
 					);
 					results.push(result);
 
@@ -809,6 +829,7 @@ export default function (pi: ExtensionAPI) {
 					agent: string;
 					task: string;
 					cwd?: string;
+					timeoutMs?: number;
 				}> = params.tasks ?? [];
 				const results = await mapWithConcurrencyLimit(
 					taskItems,
@@ -830,6 +851,7 @@ export default function (pi: ExtensionAPI) {
 							},
 							mkDetails,
 							parentSessionId,
+							t.timeoutMs ?? params.timeoutMs,
 						);
 						allResults[index] = result;
 						emitParallelUpdate();
@@ -869,6 +891,7 @@ export default function (pi: ExtensionAPI) {
 					onUpdate,
 					mkDetails,
 					parentSessionId,
+					params.timeoutMs,
 				);
 				if (isFailedResult(result)) {
 					return {

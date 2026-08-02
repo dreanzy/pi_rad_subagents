@@ -254,6 +254,7 @@ export function parseRejection(output: string): {
 export function determineRetryable(result: SingleResult): boolean | undefined {
 	if (result.rejected) return false; // agent explicitly declined
 	if (result.stopReason === "aborted") return false;
+	if (result.stopReason === "timeout") return false; // task-level timeout, not a model failure
 	if (result.exitCode === 0 && !result.stopReason) return undefined; // success
 	if (result.stopReason === "error" || result.exitCode !== 0) {
 		const errMsg = (
@@ -277,7 +278,8 @@ export function isFailedResult(result: SingleResult): boolean {
 		result.rejected !== undefined ||
 		result.exitCode !== 0 ||
 		result.stopReason === "error" ||
-		result.stopReason === "aborted"
+		result.stopReason === "aborted" ||
+		result.stopReason === "timeout"
 	);
 }
 
@@ -401,6 +403,7 @@ export async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: MakeDetailsFn,
 	parentSessionId: string | undefined,
+	timeoutMs: number | undefined,
 ): Promise<SingleResult> {
 	const pluginConfig = loadConfig(defaultCwd);
 	const resolvedAgentName = pluginConfig.agentAliases?.[agentName] ?? agentName;
@@ -510,6 +513,8 @@ export async function runSingleAgent(
 
 			args.push(`Task: ${task}`);
 			let wasAborted = false;
+			let timedOut = false;
+			let timeoutTimer: NodeJS.Timeout | undefined;
 
 			const exitCode = await new Promise<number>((resolve) => {
 				const invocation = getPiInvocation(args);
@@ -587,30 +592,50 @@ export async function runSingleAgent(
 					resolve(1);
 				});
 
+				const killProc = () => {
+					proc.kill("SIGTERM");
+					// Windows: proc.kill only terminates the direct child, not its descendants
+					if (process.platform === "win32" && proc.pid !== undefined) {
+						spawn("taskkill", ["/T", "/F", "/PID", String(proc.pid)], {
+							stdio: "ignore",
+						});
+					}
+					setTimeout(() => {
+						if (!proc.killed) proc.kill("SIGKILL");
+					}, 5000);
+				};
 				if (signal) {
-					const killProc = () => {
+					const onAbort = () => {
 						wasAborted = true;
-						proc.kill("SIGTERM");
-						// Windows: proc.kill only terminates the direct child, not its descendants
-						if (process.platform === "win32" && proc.pid !== undefined) {
-							spawn("taskkill", ["/T", "/F", "/PID", String(proc.pid)], {
-								stdio: "ignore",
-							});
-						}
-						setTimeout(() => {
-							if (!proc.killed) proc.kill("SIGKILL");
-						}, 5000);
+						killProc();
 					};
-					if (signal.aborted) killProc();
+					if (signal.aborted) onAbort();
 					else
-						signal.addEventListener("abort", killProc, {
+						signal.addEventListener("abort", onAbort, {
 							once: true,
 						});
+				}
+				if (timeoutMs !== undefined && timeoutMs > 0) {
+					timeoutTimer = setTimeout(() => {
+						timedOut = true;
+						killProc();
+					}, timeoutMs);
 				}
 			});
 
 			currentResult.exitCode = exitCode;
+			if (timeoutTimer) clearTimeout(timeoutTimer);
 			if (wasAborted) throw new Error("Subagent was aborted");
+
+			// Task timeout: kill already happened; return whatever output arrived
+			// (partial results included) instead of retrying the next model.
+			if (timedOut) {
+				currentResult.stopReason = "timeout";
+				currentResult.exitCode = 124;
+				currentResult.errorMessage = `Task exceeded ${timeoutMs}ms timeout`;
+				currentResult.retryable = false;
+				return currentResult;
+			}
 
 			// Parse rejection contract from output
 			if (!currentResult.rejected) {
