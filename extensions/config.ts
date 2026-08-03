@@ -174,6 +174,19 @@ function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
  * Resolve the effective configuration for an agent name.
  * Merges: JSON config overrides on top of .md frontmatter defaults.
  */
+/**
+ * First defined (non-null) value — preserves `??` semantics, keeps empty strings.
+ * Empty strings must pass through: JSON `tools: []` joins to "" and means "clear", not "fall back".
+ */
+function pickFirst(
+	...values: Array<string | null | undefined>
+): string | undefined {
+	for (const value of values) {
+		if (value !== undefined && value !== null) return value;
+	}
+	return undefined;
+}
+
 export function resolveAgentConfig(
 	agentName: string,
 	frontmatter: Record<string, string>,
@@ -188,41 +201,37 @@ export function resolveAgentConfig(
 } {
 	const configOverride = pluginConfig.agents?.[agentName];
 
-	// Resolve model: frontmatter > JSON > defaultModel > undefined (inherits main session)
+	// Resolve model: JSON > frontmatter > defaultModel > undefined (inherits main session)
 	const frontmatterModel = frontmatter.model;
 	const overrideModel = configOverride?.model;
 	const defaultModelVal = pluginConfig.defaultModel;
 
-	let primaryModel: string | undefined;
-	let modelPriority: string[] = [];
+	// Normalize JSON model (array or string) to an ordered list; first = primary, rest = fallbacks
+	const overrideModels =
+		Array.isArray(overrideModel) && overrideModel.length > 0
+			? overrideModel
+			: typeof overrideModel === "string" && overrideModel.length > 0
+				? [overrideModel]
+				: undefined;
 
-	if (frontmatterModel) {
-		// frontmatter wins; JSON array items become fallbacks
-		primaryModel = frontmatterModel;
-		if (Array.isArray(overrideModel)) {
-			modelPriority = [...overrideModel];
-		} else if (typeof overrideModel === "string") {
-			modelPriority = [overrideModel];
-		}
-	} else if (Array.isArray(overrideModel)) {
-		const [first, ...rest] = overrideModel;
-		primaryModel = first;
-		modelPriority = rest;
-	} else if (typeof overrideModel === "string") {
-		primaryModel = overrideModel;
-	} else if (defaultModelVal) {
-		primaryModel = defaultModelVal;
-	}
+	const primaryModel = pickFirst(
+		overrideModels?.[0],
+		frontmatterModel,
+		defaultModelVal,
+	);
+	const modelPriority = overrideModels ? overrideModels.slice(1) : [];
 
-	// Non-model fields: frontmatter > JSON
-	const toolsRaw = frontmatter.tools ?? configOverride?.tools?.join(",") ?? "";
+	// Non-model fields: JSON > frontmatter
+	const toolsRaw =
+		pickFirst(configOverride?.tools?.join(","), frontmatter.tools) ?? "";
 	const tools = toolsRaw
 		.split(",")
 		.map((t: string) => t.trim())
 		.filter(Boolean);
 
 	const description =
-		frontmatter.description ?? configOverride?.description ?? agentName;
+		pickFirst(configOverride?.description, frontmatter.description) ??
+		agentName;
 
 	return {
 		model: primaryModel,
