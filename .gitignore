@@ -15,6 +15,7 @@ npm-debug.log*
 # Agent
 AGENTS.md
 CONTEXT.md
+.pi/
 
 # Runtime state
 **/.rad-subagents-state.json
