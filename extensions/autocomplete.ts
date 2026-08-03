@@ -31,7 +31,16 @@ function createAgentAutocompleteProvider(
 	current: AutocompleteProvider,
 	cwd: string,
 ): AutocompleteProvider {
+	// Hide alias entries (expanded from agentAliases) from the @ list —
+	// they still work when typed explicitly, but shouldn't clutter completion.
 	const { agents } = discoverAgents(cwd, "both");
+	const realAgents = agents.filter((a) => !a.aliasOf);
+	const toItems = (arr: typeof realAgents): AutocompleteItem[] =>
+		arr.slice(0, MAX_SUGGESTIONS).map((a) => ({
+			value: `@${a.name}`,
+			label: a.name,
+			description: a.description,
+		}));
 
 	return {
 		triggerCharacters: ["@"],
@@ -58,29 +67,17 @@ function createAgentAutocompleteProvider(
 
 			if (!query) {
 				// No filter — show all agents (capped)
-				suggestions = agents
-					.slice(0, MAX_SUGGESTIONS)
-					.map((a) => ({
-						value: `@${a.name}`,
-						label: a.name,
-						description: a.description,
-					}));
+				suggestions = toItems(realAgents);
 			} else {
 				// Phase 1: exact prefix match (case-insensitive)
-				const prefixMatches = agents.filter((a) =>
+				const prefixMatches = realAgents.filter((a) =>
 					a.name.toLowerCase().startsWith(query.toLowerCase()),
 				);
 				if (prefixMatches.length > 0) {
-					suggestions = prefixMatches
-						.slice(0, MAX_SUGGESTIONS)
-						.map((a) => ({
-							value: `@${a.name}`,
-							label: a.name,
-							description: a.description,
-						}));
+					suggestions = toItems(prefixMatches);
 				} else {
 					// Phase 2: fuzzy match
-					const fuzzyMatches = fuzzyFilter(agents, query, (a) => a.name);
+					const fuzzyMatches = fuzzyFilter(realAgents, query, (a) => a.name);
 					if (fuzzyMatches.length === 0) {
 						// No agent matched → fall back to built-in file completion
 						return current.getSuggestions(
@@ -90,13 +87,7 @@ function createAgentAutocompleteProvider(
 							options,
 						);
 					}
-					suggestions = fuzzyMatches
-						.slice(0, MAX_SUGGESTIONS)
-						.map((a) => ({
-							value: `@${a.name}`,
-							label: a.name,
-							description: a.description,
-						}));
+					suggestions = toItems(fuzzyMatches);
 				}
 			}
 

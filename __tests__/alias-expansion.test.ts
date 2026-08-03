@@ -12,6 +12,7 @@ describe("discoverAgents alias expansion", () => {
 		const scout = agents.find((a) => a.name === "scout");
 		expect(scout).toBeDefined();
 		expect(scout!.description).toContain("alias of explorer");
+		expect(scout!.aliasOf).toBe("explorer");
 		expect(scout!.systemPrompt).toBe(
 			agents.find((a) => a.name === "explorer")!.systemPrompt,
 		);
@@ -29,5 +30,6 @@ describe("discoverAgents alias expansion", () => {
 		const clash = agents.find((a) => a.name === "explorer");
 		expect(clash).toBeDefined();
 		expect(clash!.description).not.toContain("alias of");
+		expect(clash!.aliasOf).toBeUndefined();
 	});
 });

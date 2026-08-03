@@ -41,6 +41,8 @@ export interface AgentConfig {
 	modelPriority?: string[];
 	/** Agent requires a vision-capable model (enforced at delegation time). */
 	requiresVision?: boolean;
+	/** Alias of a real agent (set only on entries expanded from agentAliases). */
+	aliasOf?: string;
 	systemPrompt: string;
 	source: "user" | "project" | "builtin";
 	filePath: string;
@@ -197,6 +199,7 @@ export function discoverAgents(
 			...target,
 			name: alias,
 			description: `${target.description} (alias of ${targetName})`,
+			aliasOf: targetName,
 		});
 	}
 
