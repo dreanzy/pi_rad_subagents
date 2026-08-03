@@ -18,6 +18,8 @@ pi install /path/to/pi_rad_subagents
 /reload
 ```
 
+安装后，在输入框输入 `@` 即可通过自动补全查看可用 agent。
+
 ## 用法
 
 ### 单次委托
@@ -30,16 +32,7 @@ rad-subagents(agent: "explorer", task: "find all auth-related code")
 
 ```
 rad-subagents(tasks: [
-  { agent: "explorer", task: "find model files"   },
-  "orchestrator": {
-    "enabled": true
-  },
-  "agentAliases": {
-    "scout": "explorer",
-    "worker": "fixer",
-    "reviewer": "oracle"
-  }
-},
+  { agent: "explorer", task: "find model files"    },
   { agent: "librarian", task: "check ORM docs" }
 ])
 ```
@@ -53,6 +46,21 @@ rad-subagents(chain: [
 ])
 ```
 
+### 工具参数
+
+| 参数 | 说明 |
+|------|------|
+| `agent` | 要调用的 agent 名称（单次模式） |
+| `task` | 要委托的任务（单次模式） |
+| `tasks` | 并行执行的 `{agent, task}` 数组 |
+| `chain` | 顺序执行的 `{agent, task}` 数组；支持 `{previous}` 占位符引用上一步输出 |
+| `agentScope` | 使用的 agent 目录：`"user"`（默认）、`"project"` 或 `"both"`（启用项目本地 agent `.pi/agents`） |
+| `confirmProjectAgents` | 运行项目本地 agent 前是否确认。默认 `true` |
+| `cwd` | agent 进程的工作目录（单次模式） |
+| `timeoutMs` | 应用于所有任务/步骤的默认超时；单项 `timeoutMs` 优先。到时限时 subagent 被终止（部分输出以 `stopReason: "timeout"` 返回）。省略则无超时——建议设置 |
+
+`tasks` 和 `chain` 的每个条目也支持可选的 `cwd` 和 `timeoutMs`。
+
 ### Orchestrator 模式
 
 ```
@@ -60,8 +68,9 @@ rad-subagents(chain: [
 /orchestrate off
 ```
 
-切换工作流管理器模式。启用后，LLM 充当编排者 — 规划、委托给专业 agent（`@explorer`、`@fixer`、`@oracle` 等），并整合结果。默认为关闭。
+切换工作流管理器模式。启用后，LLM 充当编排者 — 规划、委托给专业 agent（`@explorer`、`@fixer`、`@oracle` 等），并整合结果。
 
+默认开启；可通过 `rad-subagents.json` 中的 `orchestrator.enabled: false` 关闭（见配置）。
 
 ## Agent 舰队
 
@@ -73,11 +82,15 @@ rad-subagents(chain: [
 | `oracle` | 架构决策 + 代码审查 | read, grep, find, ls, bash |
 | `designer` | UI/UX 设计与实现 | read, grep, find, ls, bash, write, edit |
 | `fixer` | 有界实现专家 | read, grep, find, ls, bash, write, edit |
-| `observer` | 视觉/媒体分析 | read, grep, find, ls |
+| `observer` | 视觉/媒体分析（需视觉模型） | read, grep, find, ls |
+
+`observer` 委托给支持图像输入的模型；若配置的模型无法看图，委托会以明确错误失败。
 
 ## 配置
 
 配置从 `.pi/rad-subagents.json`（从 cwd 向上查找）或 `~/.pi/agent/rad-subagents.json` 加载。
+
+优先级：**项目 JSON > 全局 JSON > agent `.md` frontmatter > 内置默认**。
 
 示例 `.pi/rad-subagents.json`：
 
@@ -90,10 +103,32 @@ rad-subagents(chain: [
     },
     "oracle": {
       "model": ["opencode-go/deepseek-v4-pro:xhigh", "deepseek/deepseek-v4-pro:xhigh"]
+    },
+    "fixer": {
+      "tools": ["read", "write", "edit", "bash"],
+      "disabled": false
     }
+  },
+  "agentAliases": {
+    "scout": "explorer",
+    "worker": "fixer",
+    "reviewer": "oracle"
+  },
+  "orchestrator": {
+    "enabled": true
   }
 }
 ```
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `defaultModel` | string | 未指定模型的 agent 的默认模型（支持 `model:level` 语法） |
+| `agents.<name>.model` | string \| string[] | 主模型，或回退模型数组（第一个为主）。支持 `model:level` 语法 |
+| `agents.<name>.tools` | string[] | 工具白名单覆盖 |
+| `agents.<name>.description` | string | 覆盖展示给 LLM 的 agent 描述 |
+| `agents.<name>.disabled` | boolean | 完全禁用某个 agent |
+| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如其他技能引用 `@scout` → `explorer`） |
+| `orchestrator.enabled` | boolean | Orchestrator 模式开关。默认 `true` |
 
 ## 开发
 
