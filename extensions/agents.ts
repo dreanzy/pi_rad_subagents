@@ -177,6 +177,29 @@ export function discoverAgents(
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
 
+	// Expand agentAliases into real agent entries so aliases are visible to the
+	// LLM at decision time (available-agent lists, vision checks, @-mentions).
+	// Real agents win on name collision; dangling aliases (target missing) are
+	// skipped with a warning. Chained aliases (A->B where B is itself an alias)
+	// are not supported; expansion follows insertion order.
+	for (const [alias, targetName] of Object.entries(
+		pluginConfig.agentAliases ?? {},
+	)) {
+		if (agentMap.has(alias)) continue;
+		const target = agentMap.get(targetName);
+		if (!target) {
+			console.warn(
+				`[rad-subagents] agentAliases: alias "${alias}" targets unknown agent "${targetName}", skipped`,
+			);
+			continue;
+		}
+		agentMap.set(alias, {
+			...target,
+			name: alias,
+			description: `${target.description} (alias of ${targetName})`,
+		});
+	}
+
 	const result: AgentDiscoveryResult = {
 		agents: Array.from(agentMap.values()),
 		projectAgentsDir,
