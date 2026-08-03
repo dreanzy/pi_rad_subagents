@@ -171,10 +171,6 @@ function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 // ── Agent config resolution ──────────────────────────────────────────
 
 /**
- * Resolve the effective configuration for an agent name.
- * Merges: JSON config overrides on top of .md frontmatter defaults.
- */
-/**
  * First defined (non-null) value — preserves `??` semantics, keeps empty strings.
  * Empty strings must pass through: JSON `tools: []` joins to "" and means "clear", not "fall back".
  */
@@ -187,6 +183,10 @@ function pickFirst(
 	return undefined;
 }
 
+/**
+ * Resolve the effective configuration for an agent name.
+ * Merges: JSON config overrides on top of .md frontmatter defaults.
+ */
 export function resolveAgentConfig(
 	agentName: string,
 	frontmatter: Record<string, string>,
