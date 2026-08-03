@@ -620,9 +620,6 @@ export default function (pi: ExtensionAPI) {
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
-			// Get parent sessionId for deterministic subagent cache keys
-			const parentSessionId = ctx.sessionManager.getSessionId();
-
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
@@ -743,7 +740,6 @@ export default function (pi: ExtensionAPI) {
 						signal,
 						chainUpdate,
 						mkDetails,
-						parentSessionId,
 						step.timeoutMs ?? params.timeoutMs,
 					);
 					results.push(result);
@@ -850,7 +846,6 @@ export default function (pi: ExtensionAPI) {
 								}
 							},
 							mkDetails,
-							parentSessionId,
 							t.timeoutMs ?? params.timeoutMs,
 						);
 						allResults[index] = result;
@@ -890,7 +885,6 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					onUpdate,
 					mkDetails,
-					parentSessionId,
 					params.timeoutMs,
 				);
 				if (isFailedResult(result)) {

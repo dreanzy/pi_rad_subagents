@@ -5,7 +5,6 @@
  */
 
 import { spawn } from "node:child_process";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -402,7 +401,6 @@ export async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: MakeDetailsFn,
-	parentSessionId: string | undefined,
 	timeoutMs: number | undefined,
 ): Promise<SingleResult> {
 	const pluginConfig = loadConfig(defaultCwd);
@@ -449,16 +447,6 @@ export async function runSingleAgent(
 		const currentModel = models[modelIdx];
 
 		const args: string[] = ["--mode", "json", "-p", "--no-session"];
-		if (parentSessionId) {
-			args.push(
-				"--session-id",
-				crypto
-					.createHash("sha256")
-					.update(parentSessionId + ":" + resolvedAgentName)
-					.digest("hex")
-					.slice(0, 16),
-			);
-		}
 		if (currentModel) args.push("--model", currentModel);
 		if (agent.tools && agent.tools.length > 0)
 			args.push("--tools", agent.tools.join(","));
