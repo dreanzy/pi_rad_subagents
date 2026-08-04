@@ -262,7 +262,7 @@ export function determineRetryable(result: SingleResult): boolean | undefined {
 			(result.stderr || "")
 		).toLowerCase();
 		if (
-			/rate.limit|timeout|internal.?server.?error|5\d{2}|unavailable|overloaded|too many/i.test(
+			/rate.limit|timeout|internal.?server.?error|5\d{2}|unavailable|overloaded|too many|model not available|unsupported model|unknown model/i.test(
 				errMsg,
 			)
 		)
