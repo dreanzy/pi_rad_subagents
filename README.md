@@ -100,6 +100,8 @@ Common role names are pre-mapped to real agents and work whenever mentioned (via
 
 User `agentAliases` override built-in ones on name collision.
 
+JSON `agents.<alias>` overrides (`model`, `tools`, `description`) apply to the alias entry on top of the config it inherits from its target — they never affect the target itself.
+
 ## Configuration
 
 Config is loaded from `.pi/rad-subagents.json` (walked up from cwd) or `~/.pi/agent/rad-subagents.json`.

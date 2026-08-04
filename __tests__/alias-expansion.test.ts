@@ -56,5 +56,20 @@ describe("discoverAgents alias expansion", () => {
 			expect(gp).toBeDefined();
 			expect(gp!.aliasOf).toBe("explorer");
 		});
+
+		it("applies JSON agents.<alias> overrides on top of inherited config", () => {
+			const cwd = import.meta.dirname + "/fixtures/aliases-overrides-json";
+			const { agents } = discoverAgents(cwd, "user");
+			const nav = agents.find((a) => a.name === "navigator");
+			const explorer = agents.find((a) => a.name === "explorer");
+			expect(nav).toBeDefined();
+			expect(nav!.aliasOf).toBe("explorer");
+			expect(nav!.model).toBe("m1");
+			expect(nav!.modelPriority).toEqual(["m2"]);
+			expect(nav!.tools).toEqual(["read", "bash"]);
+			// Unconfigured fields still inherit from the target.
+			expect(nav!.systemPrompt).toBe(explorer!.systemPrompt);
+			expect(nav!.description).toContain("alias of explorer");
+		});
 	});
 });

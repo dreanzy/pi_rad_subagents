@@ -100,6 +100,8 @@ rad-subagents(chain: [
 
 用户 `agentAliases` 在同名时覆盖内置别名。
 
+JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别名条目本身，叠加在其从目标继承的配置之上——不会影响目标 agent 自身。
+
 ## 配置
 
 配置从 `.pi/rad-subagents.json`（从 cwd 向上查找）或 `~/.pi/agent/rad-subagents.json` 加载。

@@ -23,7 +23,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { AgentScope } from "./agents.ts";
-import { BUILTIN_ALIASES, discoverAgents } from "./agents.ts";
+import { discoverAgents } from "./agents.ts";
 import { loadConfig } from "./config.ts";
 import {
 	type DisplayItem,
@@ -608,11 +608,6 @@ export default function (pi: ExtensionAPI) {
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").`,
 			`If an agent name you need (e.g. referenced by a skill) is not in the list above, try it anyway — it may be a built-in hidden alias. On failure, the tool reports available agents and aliases.`,
-			`Built-in hidden aliases (not listed, delegate by name anytime): ${Object.entries(
-				BUILTIN_ALIASES,
-			)
-				.map(([alias, target]) => `${alias}->${target}`)
-				.join(", ")}.`,
 			"TIMEOUTS: always pass timeoutMs (top-level default or per-task) estimated from task complexity — the subagent is killed at the deadline and partial output returned with stopReason 'timeout'; without it a hung subagent blocks forever.",
 		].join(" "),
 		parameters: SubagentParams,

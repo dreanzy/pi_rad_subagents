@@ -12,6 +12,32 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadConfig, findProjectRadSubagentsConfig } from "./config.ts";
+import { discoverAgents } from "./agents.ts";
+
+const ORCHESTRATOR_AGENTS_PLACEHOLDER = "__AVAILABLE_AGENTS__";
+
+/**
+ * Rich per-agent descriptions for the orchestrator prompt. Keyed by agent
+ * name; falls back to the agent's own frontmatter description when absent
+ * (e.g. user/project agents). Kept here rather than in the .md frontmatter
+ * so autocomplete and error lists don't inherit the verbose text.
+ */
+const AGENT_DETAILS: Record<string, string> = {
+	explorer:
+		"Fast codebase recon that returns compressed context for handoff. Permissions: read_files only. Stats: 2x faster codebase search than you, half the cost. Delegate when: Need to discover what exists before planning; Parallel searches speed discovery; Need summarized map vs full contents; Broad/uncertain scope.",
+	librarian:
+		"External knowledge and library research, fast web research. Role: Authoritative source for current library docs, API references, examples, bug investigations, and web retrieval. Stats: 2x faster web research than you, half the cost.",
+	oracle:
+		"Architecture, risk, debugging strategy, and review. Role: Strategic advisor for high-stakes decisions and persistent problems, code reviewer. Permissions: read_files only. Stats: 5x better decision maker and problem solver than you, same cost.",
+	designer:
+		"UI/UX design, related edits, design polish and review. Permissions: read_files, write_files. Capabilities: Good design taste, visual relevant edits, interactions, responsive layouts, design systems with aesthetic intent.",
+	fixer:
+		"Bounded implementation and execution. Role: Fast execution specialist for well-defined tasks. Permissions: read_files, write_files. Stats: 2x faster code edits, half your cost.",
+	observer:
+		"Visual/media analysis isolated from main context. Role: Visual analysis specialist for images, screenshots, and diagrams. Permissions: read_files only. Capabilities: Interprets images, screenshots, PDFs, and diagrams; extracts UI elements, layouts, text, relationships.",
+	deepwork:
+		"Structured deep work — plan file, oracle gates, phased implementation. Role: Complex multi-step implementation with persistent plan tracking and verification. Permissions: read_files, write_files.",
+};
 
 const ORCHESTRATOR_SYSTEM_PROMPT = `
 ## Role: ORCHESTRATOR (workflow manager)
@@ -30,13 +56,7 @@ Always prefer delegation over doing the work yourself — the specialists are fa
 
 ## Available Agents
 
-- @explorer: Fast codebase recon that returns compressed context for handoff. Permissions: read_files only. Stats: 2x faster codebase search than you, half the cost. Delegate when: Need to discover what exists before planning; Parallel searches speed discovery; Need summarized map vs full contents; Broad/uncertain scope.
-- @librarian: External knowledge and library research, fast web research. Role: Authoritative source for current library docs, API references, examples, bug investigations, and web retrieval. Stats: 2x faster web research than you, half the cost.
-- @oracle: Architecture, risk, debugging strategy, and review. Role: Strategic advisor for high-stakes decisions and persistent problems, code reviewer. Permissions: read_files only. Stats: 5x better decision maker and problem solver than you, same cost.
-- @designer: UI/UX design, related edits, design polish and review. Permissions: read_files, write_files. Capabilities: Good design taste, visual relevant edits, interactions, responsive layouts, design systems with aesthetic intent.
-- @fixer: Bounded implementation and execution. Role: Fast execution specialist for well-defined tasks. Permissions: read_files, write_files. Stats: 2x faster code edits, half your cost.
-- @observer: Visual/media analysis isolated from main context. Role: Visual analysis specialist for images, screenshots, and diagrams. Permissions: read_files only. Capabilities: Interprets images, screenshots, PDFs, and diagrams; extracts UI elements, layouts, text, relationships.
-- @deepwork: Structured deep work — plan file, oracle gates, phased implementation. Role: Complex multi-step implementation with persistent plan tracking and verification. Permissions: read_files, write_files.
+${ORCHESTRATOR_AGENTS_PLACEHOLDER}
 
 > ⚠️ **orchestrator is YOUR role, not a subagent.** There is no @orchestrator agent to delegate to. If you need strategic input, route to @oracle instead.
 
@@ -179,11 +199,21 @@ export function registerOrchestrator(pi: ExtensionAPI): void {
 		// Override takes precedence; fall back to per-project config (TTL-cached).
 		const enabled = sessionOverride ?? loadOrchestratorEnabled(ctx.cwd);
 		if (!enabled) return undefined;
-		// Append after the base prompt so user rules (AGENTS.md in
-		// <project_context>) keep priority over orchestrator instructions
-		// (cf. oh-my-opencode-slim #782).
+		// Build the Available Agents section from live discovery (filters
+		// disabled agents and hidden aliases), then append after the base
+		// prompt so user rules (AGENTS.md in <project_context>) keep priority
+		// over orchestrator instructions (cf. oh-my-opencode-slim #782).
+		const { agents } = discoverAgents(ctx.cwd, "both");
+		const real = agents.filter((a) => !a.aliasOf);
+		const section = real
+			.map((a) => `- @${a.name}: ${AGENT_DETAILS[a.name] ?? a.description}`)
+			.join("\n");
+		const prompt = ORCHESTRATOR_SYSTEM_PROMPT.replace(
+			ORCHESTRATOR_AGENTS_PLACEHOLDER,
+			section || "(none)",
+		);
 		return {
-			systemPrompt: event.systemPrompt + "\n\n" + ORCHESTRATOR_SYSTEM_PROMPT,
+			systemPrompt: event.systemPrompt + "\n\n" + prompt,
 		};
 	});
 }

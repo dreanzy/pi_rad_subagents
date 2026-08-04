@@ -197,38 +197,22 @@ export function discoverAgents(
 	// Expand aliases into real agent entries so aliases are visible to the
 	// LLM at decision time (available-agent lists, vision checks, @-mentions).
 	// Real agents win on name collision; dangling aliases (target missing) are
-	// skipped with a warning. Chained aliases (A->B where B is itself an alias)
-	// are not supported; expansion follows insertion order.
+	// skipped (with a warning for user-configured ones). Chained aliases
+	// (A->B where B is itself an alias) are not supported.
 	// User agentAliases first so they can override built-in aliases.
 	for (const [alias, targetName] of Object.entries(
 		pluginConfig.agentAliases ?? {},
 	)) {
-		if (agentMap.has(alias)) continue;
-		const target = agentMap.get(targetName);
-		if (!target) {
-			console.warn(
-				`[rad-subagents] agentAliases: alias "${alias}" targets unknown agent "${targetName}", skipped`,
-			);
-			continue;
-		}
-		agentMap.set(alias, {
-			...target,
-			name: alias,
-			description: `${target.description} (alias of ${targetName})`,
-			aliasOf: targetName,
-		});
+		expandAlias(agentMap, alias, targetName, true);
 	}
 	// Built-in aliases fill in names the user didn't override.
 	for (const [alias, targetName] of Object.entries(BUILTIN_ALIASES)) {
-		if (agentMap.has(alias)) continue;
-		const target = agentMap.get(targetName);
-		if (!target) continue;
-		agentMap.set(alias, {
-			...target,
-			name: alias,
-			description: `${target.description} (alias of ${targetName})`,
-			aliasOf: targetName,
-		});
+		expandAlias(agentMap, alias, targetName);
+	}
+	// JSON agents.<alias> overrides (model/tools/description) apply to alias
+	// entries on top of the inherited target config.
+	for (const agent of agentMap.values()) {
+		if (agent.aliasOf) applyAliasJsonOverrides(agent, pluginConfig);
 	}
 
 	const result: AgentDiscoveryResult = {
@@ -240,4 +224,62 @@ export function discoverAgents(
 		expiry: now + DISCOVER_CACHE_TTL,
 	});
 	return result;
+}
+
+/**
+ * Insert one alias entry into the agent map, copying the target's config.
+ * Skips on name collision (a real agent or earlier alias wins) and on a
+ * missing target (warns only for user-configured aliases).
+ */
+function expandAlias(
+	agentMap: Map<string, AgentConfig>,
+	alias: string,
+	targetName: string,
+	warnOnMissing = false,
+): void {
+	if (agentMap.has(alias)) return;
+	const target = agentMap.get(targetName);
+	if (!target) {
+		if (warnOnMissing) {
+			console.warn(
+				`[rad-subagents] agentAliases: alias "${alias}" targets unknown agent "${targetName}", skipped`,
+			);
+		}
+		return;
+	}
+	agentMap.set(alias, {
+		...target,
+		name: alias,
+		description: `${target.description} (alias of ${targetName})`,
+		aliasOf: targetName,
+	});
+}
+
+/**
+ * Apply JSON `agents.<alias>` overrides (model/tools/description) to an alias
+ * entry on top of the config it inherited from its target. Inherited target
+ * values stand in for frontmatter, so only explicitly-set JSON fields win.
+ */
+function applyAliasJsonOverrides(
+	agent: AgentConfig,
+	pluginConfig: RadSubagentsPluginConfig,
+): void {
+	const configOverride = pluginConfig.agents?.[agent.name];
+	if (!configOverride) return;
+	const resolved = resolveAgentConfig(
+		agent.name,
+		{
+			model: agent.model ?? "",
+			tools: agent.tools?.join(",") ?? "",
+			description: agent.description,
+		},
+		pluginConfig,
+	);
+	if (configOverride.model !== undefined) {
+		agent.model = resolved.model;
+		agent.modelPriority = resolved.modelPriority;
+	}
+	if (configOverride.tools !== undefined) agent.tools = resolved.tools;
+	if (configOverride.description !== undefined)
+		agent.description = resolved.description;
 }
