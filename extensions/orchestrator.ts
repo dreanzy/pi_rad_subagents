@@ -179,8 +179,11 @@ export function registerOrchestrator(pi: ExtensionAPI): void {
 		// Override takes precedence; fall back to per-project config (TTL-cached).
 		const enabled = sessionOverride ?? loadOrchestratorEnabled(ctx.cwd);
 		if (!enabled) return undefined;
+		// Append after the base prompt so user rules (AGENTS.md in
+		// <project_context>) keep priority over orchestrator instructions
+		// (cf. oh-my-opencode-slim #782).
 		return {
-			systemPrompt: ORCHESTRATOR_SYSTEM_PROMPT + "\n\n" + event.systemPrompt,
+			systemPrompt: event.systemPrompt + "\n\n" + ORCHESTRATOR_SYSTEM_PROMPT,
 		};
 	});
 }
