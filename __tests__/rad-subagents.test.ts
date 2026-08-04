@@ -27,14 +27,14 @@ describe("resolveAgentConfig", () => {
 		expect(result.description).toBe("A test agent");
 	});
 
-	it("frontmatter description takes priority over JSON", () => {
+	it("JSON override takes priority over frontmatter description", () => {
 		const config = { agents: { test: { description: "Override desc" } } };
 		const result = resolveAgentConfig(
 			"test",
 			{ description: "Frontmatter desc" },
 			config,
 		);
-		expect(result.description).toBe("Frontmatter desc");
+		expect(result.description).toBe("Override desc");
 	});
 
 	it("falls back to agent name when no description available", () => {
