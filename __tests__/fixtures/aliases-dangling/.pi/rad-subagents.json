@@ -1,1 +1,3 @@
-{/n  "agentAliases": { "ghost": "nonexistent-target" }/n}/n
+{
+  "agentAliases": { "ghost": "nonexistent-target" }
+}

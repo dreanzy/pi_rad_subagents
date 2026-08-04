@@ -86,6 +86,20 @@ rad-subagents(chain: [
 
 `observer` 委托给支持图像输入的模型；若配置的模型无法看图，委托会以明确错误失败。
 
+### 内置别名
+
+常见角色名已预映射到真实 agent：无论何时被提及（通过 `rad-subagents` 或 `@提及`）都可用，但不会出现在自动补全和 orchestrator 工作流中。它们在运行时解析为目标 agent 的配置（包括你 JSON 里的 `agents.<name>` 覆盖），因此自动保持同步。
+
+| 别名 | 目标 |
+|------|------|
+| `general-purpose` | `oracle` |
+| `scout` | `explorer` |
+| `worker` | `fixer` |
+| `researcher` | `librarian` |
+| `reviewer` | `oracle` |
+
+用户 `agentAliases` 在同名时覆盖内置别名。
+
 ## 配置
 
 配置从 `.pi/rad-subagents.json`（从 cwd 向上查找）或 `~/.pi/agent/rad-subagents.json` 加载。
@@ -110,9 +124,7 @@ rad-subagents(chain: [
     }
   },
   "agentAliases": {
-    "scout": "explorer",
-    "worker": "fixer",
-    "reviewer": "oracle"
+    "navigator": "explorer"
   },
   "orchestrator": {
     "enabled": true
@@ -127,7 +139,7 @@ rad-subagents(chain: [
 | `agents.<name>.tools` | string[] | 工具白名单覆盖 |
 | `agents.<name>.description` | string | 覆盖展示给 LLM 的 agent 描述 |
 | `agents.<name>.disabled` | boolean | 完全禁用某个 agent |
-| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如其他技能引用 `@scout` → `explorer`） |
+| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如 `@navigator` → `explorer`）。内置别名已覆盖 `general-purpose`→`oracle`、`scout`→`explorer`、`worker`→`fixer`、`researcher`→`librarian`、`reviewer`→`oracle`；用户条目在同名时覆盖内置 |
 | `orchestrator.enabled` | boolean | Orchestrator 模式开关。默认 `true` |
 
 ## 开发

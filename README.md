@@ -86,6 +86,20 @@ On by default; disable with `orchestrator.enabled: false` in `rad-subagents.json
 
 `observer` delegates to a model with image input support; delegation fails with a clear error if the configured model can't see images.
 
+### Built-in aliases
+
+Common role names are pre-mapped to real agents and work whenever mentioned (via `rad-subagents` or `@mention`), while staying hidden from autocomplete and orchestrator workflows. They resolve at runtime to the target agent's config — including your JSON `agents.<name>` overrides — so they stay in sync automatically.
+
+| Alias | Target |
+|-------|--------|
+| `general-purpose` | `oracle` |
+| `scout` | `explorer` |
+| `worker` | `fixer` |
+| `researcher` | `librarian` |
+| `reviewer` | `oracle` |
+
+User `agentAliases` override built-in ones on name collision.
+
 ## Configuration
 
 Config is loaded from `.pi/rad-subagents.json` (walked up from cwd) or `~/.pi/agent/rad-subagents.json`.
@@ -110,9 +124,7 @@ Example `.pi/rad-subagents.json`:
     }
   },
   "agentAliases": {
-    "scout": "explorer",
-    "worker": "fixer",
-    "reviewer": "oracle"
+    "navigator": "explorer"
   },
   "orchestrator": {
     "enabled": true
@@ -127,7 +139,7 @@ Example `.pi/rad-subagents.json`:
 | `agents.<name>.tools` | string[] | Tool allowlist override |
 | `agents.<name>.description` | string | Override agent description shown to the LLM |
 | `agents.<name>.disabled` | boolean | Disable an agent entirely |
-| `agentAliases` | object | Map unknown agent names to real ones (e.g. skills referencing `@scout` → `explorer`) |
+| `agentAliases` | object | Map unknown agent names to real ones (e.g. `@navigator` → `explorer`). Built-in aliases already cover `general-purpose`→`oracle`, `scout`→`explorer`, `worker`→`fixer`, `researcher`→`librarian`, `reviewer`→`oracle`; user entries override built-ins on name collision |
 | `orchestrator.enabled` | boolean | Orchestrator mode on/off. Default: `true` |
 
 ## Development

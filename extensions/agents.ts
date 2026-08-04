@@ -23,6 +23,21 @@ import {
 	isAgentDisabled,
 } from "./config.ts";
 
+/**
+ * Built-in aliases: expanded into real agent entries at discovery time, but
+ * marked with `aliasOf` so they stay hidden from @-lists and autocomplete.
+ * Content is in sync with the target by construction (same AgentConfig),
+ * so updating e.g. oracle.md automatically updates the alias.
+ * User-configured agentAliases override these on name collision.
+ */
+export const BUILTIN_ALIASES: Record<string, string> = {
+	"general-purpose": "oracle",
+	scout: "explorer",
+	worker: "fixer",
+	researcher: "librarian",
+	reviewer: "oracle",
+};
+
 // ── TTL cache ────────────────────────────────────────────────────────
 const discoverCache = new Map<
 	string,
@@ -179,11 +194,12 @@ export function discoverAgents(
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
 
-	// Expand agentAliases into real agent entries so aliases are visible to the
+	// Expand aliases into real agent entries so aliases are visible to the
 	// LLM at decision time (available-agent lists, vision checks, @-mentions).
 	// Real agents win on name collision; dangling aliases (target missing) are
 	// skipped with a warning. Chained aliases (A->B where B is itself an alias)
 	// are not supported; expansion follows insertion order.
+	// User agentAliases first so they can override built-in aliases.
 	for (const [alias, targetName] of Object.entries(
 		pluginConfig.agentAliases ?? {},
 	)) {
@@ -195,6 +211,18 @@ export function discoverAgents(
 			);
 			continue;
 		}
+		agentMap.set(alias, {
+			...target,
+			name: alias,
+			description: `${target.description} (alias of ${targetName})`,
+			aliasOf: targetName,
+		});
+	}
+	// Built-in aliases fill in names the user didn't override.
+	for (const [alias, targetName] of Object.entries(BUILTIN_ALIASES)) {
+		if (agentMap.has(alias)) continue;
+		const target = agentMap.get(targetName);
+		if (!target) continue;
 		agentMap.set(alias, {
 			...target,
 			name: alias,

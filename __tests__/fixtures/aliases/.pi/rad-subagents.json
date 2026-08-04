@@ -1,1 +1,3 @@
-{/n  "agentAliases": { "scout": "explorer" }/n}/n
+{
+  "agentAliases": { "scout": "explorer" }
+}
