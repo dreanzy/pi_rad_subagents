@@ -19,14 +19,14 @@ import { loadConfig } from "./config.ts";
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
 /** Per-task output byte cap for parallel-summary truncation. */
-export const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const PER_TASK_OUTPUT_CAP = 50 * 1024;
 
 /**
  * Shared task rejection contract — appended to every agent system prompt.
  * Agents use structured format to reject tasks they can't handle,
  * allowing the orchestrator to reroute instead of retry blindly.
  */
-export const REJECTION_CONTRACT_INSTRUCTION = `
+const REJECTION_CONTRACT_INSTRUCTION = `
 ## Task Rejection
 
 If you CANNOT complete this task for any reason (ambiguous requirements, missing permissions, scope too broad, etc.), you MUST respond with a structured rejection instead of guessing or doing nothing:
@@ -37,7 +37,7 @@ SUGGESTION: <alternative agent or approach that could handle this, optional>
 
 // ── Types ───────────────────────────────────────────────────────────
 
-export interface UsageStats {
+interface UsageStats {
 	input: number;
 	output: number;
 	cacheRead: number;
@@ -232,7 +232,7 @@ export function getFinalOutput(messages: Message[]): string {
  *   REJECT: <reason>
  *   SUGGESTION: <alternative agent or approach, optional>
  */
-export function parseRejection(output: string): {
+function parseRejection(output: string): {
 	rejected: boolean;
 	reason?: string;
 	suggestion?: string;
@@ -250,7 +250,7 @@ export function parseRejection(output: string): {
 /**
  * Determine whether a failed result is safe to retry.
  */
-export function determineRetryable(result: SingleResult): boolean | undefined {
+function determineRetryable(result: SingleResult): boolean | undefined {
 	if (result.rejected) return false; // agent explicitly declined
 	if (result.stopReason === "aborted") return false;
 	if (result.stopReason === "timeout") return false; // task-level timeout, not a model failure

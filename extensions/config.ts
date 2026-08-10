@@ -23,7 +23,7 @@ const CONFIG_CACHE_TTL = 5000; // 5 seconds
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export interface AgentOverrideConfig {
+interface AgentOverrideConfig {
 	/**
 	 * Primary model, or array of fallback models (first = primary, rest = fallbacks).
 	 * Supports "model:level" syntax (e.g. "claude-sonnet-4-5:high") — pi natively
@@ -85,7 +85,7 @@ export function findProjectRadSubagentsConfig(cwd: string): string | null {
 /**
  * Find global `~/.pi/agent/rad-subagents.json`.
  */
-export function findGlobalRadSubagentsConfig(): string | null {
+function findGlobalRadSubagentsConfig(): string | null {
 	const globalPath = path.join(getAgentDir(), "rad-subagents.json");
 	return fs.existsSync(globalPath) ? globalPath : null;
 }
