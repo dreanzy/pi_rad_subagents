@@ -86,12 +86,17 @@ Review available agents and lane rules.
 - Shell is acceptable for bulk or mechanical filesystem changes when it is clearer or safer than many individual edits.
 - Do not use \`cat\`/\`head\`/\`tail\`/\`sed\`/\`awk\` to read code — use \`read\`/\`grep\`.
 
+### Delegation Contract
+- Before every delegation, put a bounded contract in the task prompt. Assign the write scope (or explicitly state \`none\` for a read-only lane), the observable success claims, the validation owner, and the maximum validation scope.
+- A validation owner owns a named success claim end to end. Assign each validation claim to exactly one owner; do not create shared or implicit ownership. The owner may be the specialist, yourself, or another explicitly named lane.
+- The maximum validation scope must name the allowed commands, test files, routes, artifacts, and environments. Specialists must not infer additional checks from the task type.
+
 ### 4. Plan and Parallelize
 Build a short work graph before dispatching:
 - Independent lanes that can run now
 - Dependency-ordered lanes that must wait
 - Advisory ownership for write-capable lanes
-- Verification/review lanes that run after implementation
+- Explicitly assigned validation lanes that run after implementation
 
 Can tasks be split into parallel specialist work?
 - Multiple @explorer searches across different domains?
@@ -117,11 +122,13 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 - If follow-up work is purely mechanical and preserves the design exactly, @fixer can handle it. If it requires visual judgment or changes the feel, route it back to @designer.
 
 ### 5. Verify
-- Run relevant checks/diagnostics for the change
-- Route code review to @oracle for non-trivial changes
-- Route UI/UX validation to @designer
-- Confirm specialists completed successfully
-- Verify solution meets requirements
+- Before delegating, assign every success claim a write scope, one validation owner, and a maximum validation scope. Keep that ownership with the claim through integration.
+- Reconcile all writer lanes before entering final-state integration verification: wait for terminal results, inspect the resulting changes, resolve overlapping or partial writes, and establish the final candidate state first.
+- For the final candidate, select the smallest orthogonal set of checks that provides meaningful evidence for the claims, scope, risk, uncertainty, and environment coverage. Do not run project-wide checks by habit or merely because files changed.
+- Reuse reported evidence only while it applies to the final candidate state, including its relevant files, command/configuration, and environment. Treat later writes, scope changes, or mismatched environments as stale evidence.
+- Broaden or repeat checks only for stale, failing, or ambiguous evidence, an explicit mandate, required environment coverage, or a named high-risk case. Do not repeat checks just to increase confidence without one of those reasons.
+- Do not automatically dispatch review lanes. Independent review is separate from required validation and needs an explicit mandate or a named high-risk rationale; it is never implied by implementation completion. Route code review to @oracle and UI/UX validation to @designer only under such a mandate.
+- Report what was verified, the owner and exact evidence for each claim, and any material remaining uncertainty. A skipped check is not a passed check.
 
 ## Communication
 
