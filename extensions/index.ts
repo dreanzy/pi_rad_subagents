@@ -51,6 +51,14 @@ const COLLAPSED_ITEM_COUNT = 10;
 
 // ── Tool parameter schema ───────────────────────────────────────────
 
+const TIMEOUT_DESC_SUFFIX =
+	"The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.";
+
+/**
+ * Shared schema for one delegated agent invocation (a task in single/parallel
+ * mode, or a step in chain mode). Only the task and timeout descriptions differ
+ * between the two uses — the shape is identical.
+ */
 function agentItemSchema(taskDesc: string, timeoutDesc: string) {
 	return Type.Object({
 		agent: Type.String({ description: "Name of the agent to invoke" }),
@@ -64,12 +72,12 @@ function agentItemSchema(taskDesc: string, timeoutDesc: string) {
 
 const TaskItem = agentItemSchema(
 	"Task to delegate to the agent",
-	"Per-task timeout in milliseconds. Set based on task complexity (e.g. 60_000 for a quick lookup, 600_000 for deep research). The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+	`Per-task timeout in milliseconds. Set based on task complexity (e.g. 60_000 for a quick lookup, 600_000 for deep research). ${TIMEOUT_DESC_SUFFIX}`,
 );
 
 const ChainItem = agentItemSchema(
 	"Task with optional {previous} placeholder for prior output",
-	"Per-step timeout in milliseconds. The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+	`Per-step timeout in milliseconds. ${TIMEOUT_DESC_SUFFIX}`,
 );
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {

@@ -219,6 +219,8 @@ export function resolveAgentConfig(
 	const modelPriority = overrideModels ? overrideModels.slice(1) : [];
 
 	// Non-model fields: JSON > frontmatter
+	// Empty strings pass through intentionally: `tools: []` joins to "" and
+	// means "clear the list", NOT "fall back to the frontmatter value".
 	const toolsRaw = configOverride?.tools?.join(",") ?? frontmatter.tools ?? "";
 	const tools = toolsRaw
 		.split(",")
