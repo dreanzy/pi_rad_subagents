@@ -21,6 +21,7 @@ import {
 	loadConfig,
 	resolveAgentConfig,
 	isAgentDisabled,
+	createTtlCache,
 } from "./config.ts";
 
 /**
@@ -39,11 +40,7 @@ export const BUILTIN_ALIASES: Record<string, string> = {
 };
 
 // ── TTL cache ────────────────────────────────────────────────────────
-const discoverCache = new Map<
-	string,
-	{ data: AgentDiscoveryResult; expiry: number }
->();
-const DISCOVER_CACHE_TTL = 5000; // 5 seconds
+const discoverCache = createTtlCache<AgentDiscoveryResult>(5000);
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -161,9 +158,8 @@ export function discoverAgents(
 	scope: AgentScope,
 ): AgentDiscoveryResult {
 	const cacheKey = `${cwd}:${scope}`;
-	const now = Date.now();
 	const cached = discoverCache.get(cacheKey);
-	if (cached && now < cached.expiry) return cached.data;
+	if (cached) return cached;
 
 	const pluginConfig = loadConfig(cwd);
 	const userDir = path.join(getAgentDir(), "agents");
@@ -219,10 +215,7 @@ export function discoverAgents(
 		agents: Array.from(agentMap.values()),
 		projectAgentsDir,
 	};
-	discoverCache.set(cacheKey, {
-		data: result,
-		expiry: now + DISCOVER_CACHE_TTL,
-	});
+	discoverCache.set(cacheKey, result);
 	return result;
 }
 

@@ -47,6 +47,18 @@ interface UsageStats {
 	turns: number;
 }
 
+export function emptyUsage(): UsageStats {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		cost: 0,
+		contextTokens: 0,
+		turns: 0,
+	};
+}
+
 export interface SingleResult {
 	agent: string;
 	agentSource: "user" | "project" | "builtin" | "unknown";
@@ -131,8 +143,7 @@ export function formatToolCall(
 	switch (toolName) {
 		case "bash": {
 			const command = (args.command as string) || "...";
-			const preview =
-				command.length > 60 ? `${command.slice(0, 60)}...` : command;
+			const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
 			return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
 		}
 		case "read": {
@@ -145,11 +156,8 @@ export function formatToolCall(
 				// biome-ignore lint/style/useBlockStatements: scoped inside if inside braced case
 				const startLine = offset ?? 1;
 				// biome-ignore lint/style/useBlockStatements: scoped inside if inside braced case
-				const endLine = limit !== undefined ? startLine + limit - 1 : "";
-				text += themeFg(
-					"warning",
-					`:${startLine}${endLine ? `-${endLine}` : ""}`,
-				);
+				const endLine = limit === undefined ? "" : startLine + limit - 1;
+				text += themeFg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
 			return themeFg("muted", "read ") + text;
 		}
@@ -164,9 +172,7 @@ export function formatToolCall(
 		}
 		case "edit": {
 			const rawPath = (args.file_path || args.path || "...") as string;
-			return (
-				themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath))
-			);
+			return themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath));
 		}
 		case "ls": {
 			const rawPath = (args.path || ".") as string;
@@ -192,8 +198,7 @@ export function formatToolCall(
 		}
 		default: {
 			const argsStr = JSON.stringify(args);
-			const preview =
-				argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
+			const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
 			return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
 		}
 	}
@@ -214,10 +219,7 @@ export function getFinalOutput(messages: Message[]): string {
 			if (!Array.isArray(msg.content)) continue;
 			for (const part of msg.content) {
 				const contentPart = part as ContentPart;
-				if (
-					contentPart.type === "text" &&
-					typeof contentPart.text === "string"
-				) {
+				if (contentPart.type === "text" && typeof contentPart.text === "string") {
 					return contentPart.text;
 				}
 			}
@@ -291,9 +293,9 @@ export function getResultOutput(result: SingleResult): string {
 		return msg;
 	}
 	const retryLabel =
-		result.retryable !== undefined
-			? `\n[Retryable: ${result.retryable ? "yes" : "no"}]`
-			: "";
+		result.retryable === undefined
+			? ""
+			: `\n[Retryable: ${result.retryable ? "yes" : "no"}]`;
 	if (isFailedResult(result)) {
 		const parts: string[] = [];
 		if (result.errorMessage) parts.push(result.errorMessage);
@@ -422,15 +424,7 @@ export async function runSingleAgent(
 			exitCode: 1,
 			messages: [],
 			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.${aliasHint}`,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				cost: 0,
-				contextTokens: 0,
-				turns: 0,
-			},
+			usage: emptyUsage(),
 			retryable: false,
 
 			step,
@@ -461,15 +455,7 @@ export async function runSingleAgent(
 			exitCode: -1,
 			messages: [],
 			stderr: "",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				cost: 0,
-				contextTokens: 0,
-				turns: 0,
-			},
+			usage: emptyUsage(),
 			model: currentModel || agent.model,
 			step,
 		};
@@ -539,11 +525,9 @@ export async function runSingleAgent(
 								currentResult.usage.cost += usage.cost?.total || 0;
 								currentResult.usage.contextTokens = usage.totalTokens || 0;
 							}
-							if (!currentResult.model && msg.model)
-								currentResult.model = msg.model;
+							if (!currentResult.model && msg.model) currentResult.model = msg.model;
 							if (msg.stopReason) currentResult.stopReason = msg.stopReason;
-							if (msg.errorMessage)
-								currentResult.errorMessage = msg.errorMessage;
+							if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
 						}
 						currentResult.messages.push(msg);
 						emitUpdate();
@@ -551,8 +535,7 @@ export async function runSingleAgent(
 
 					if (event.type === "tool_result_end" && event.message) {
 						const msg = event.message as Message;
-						const last =
-							currentResult.messages[currentResult.messages.length - 1];
+						const last = currentResult.messages[currentResult.messages.length - 1];
 						if (last?.role !== msg.role) {
 							currentResult.messages.push(msg);
 						}
@@ -677,15 +660,7 @@ export async function runSingleAgent(
 			exitCode: 1,
 			messages: [],
 			stderr: "All models exhausted",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				cost: 0,
-				contextTokens: 0,
-				turns: 0,
-			},
+			usage: emptyUsage(),
 			model: agent.model,
 			step,
 		}

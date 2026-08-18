@@ -15,11 +15,27 @@ import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // ── TTL cache ────────────────────────────────────────────────────────
-const configCache = new Map<
-	string,
-	{ data: RadSubagentsPluginConfig; expiry: number }
->();
-const CONFIG_CACHE_TTL = 5000; // 5 seconds
+/**
+ * Minimal TTL cache: entries expire `ttlMs` after being set.
+ */
+export function createTtlCache<T>(ttlMs: number): {
+	get(key: string): T | undefined;
+	set(key: string, value: T): void;
+} {
+	const store = new Map<string, { data: T; expiry: number }>();
+	return {
+		get(key) {
+			const cached = store.get(key);
+			if (cached && Date.now() < cached.expiry) return cached.data;
+			return undefined;
+		},
+		set(key, value) {
+			store.set(key, { data: value, expiry: Date.now() + ttlMs });
+		},
+	};
+}
+
+const configCache = createTtlCache<RadSubagentsPluginConfig>(5000);
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -99,9 +115,8 @@ function findGlobalRadSubagentsConfig(): string | null {
  *   - other top-level: project overrides global
  */
 export function loadConfig(cwd: string): RadSubagentsPluginConfig {
-	const now = Date.now();
 	const cached = configCache.get(cwd);
-	if (cached && now < cached.expiry) return cached.data;
+	if (cached) return cached;
 
 	const projectConfigPath = findProjectRadSubagentsConfig(cwd);
 	const globalConfigPath = findGlobalRadSubagentsConfig();
@@ -148,12 +163,10 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		agentAliases:
 			Object.keys(mergedAliases).length > 0 ? mergedAliases : undefined,
 		orchestrator:
-			Object.keys(mergedOrchestrator).length > 0
-				? mergedOrchestrator
-				: undefined,
+			Object.keys(mergedOrchestrator).length > 0 ? mergedOrchestrator : undefined,
 	};
 
-	configCache.set(cwd, { data: merged, expiry: now + CONFIG_CACHE_TTL });
+	configCache.set(cwd, merged);
 	return merged;
 }
 
@@ -169,19 +182,6 @@ function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 }
 
 // ── Agent config resolution ──────────────────────────────────────────
-
-/**
- * First defined (non-null) value — preserves `??` semantics, keeps empty strings.
- * Empty strings must pass through: JSON `tools: []` joins to "" and means "clear", not "fall back".
- */
-function pickFirst(
-	...values: Array<string | null | undefined>
-): string | undefined {
-	for (const value of values) {
-		if (value !== undefined && value !== null) return value;
-	}
-	return undefined;
-}
 
 /**
  * Resolve the effective configuration for an agent name.
@@ -214,24 +214,19 @@ export function resolveAgentConfig(
 				? [overrideModel]
 				: undefined;
 
-	const primaryModel = pickFirst(
-		overrideModels?.[0],
-		frontmatterModel,
-		defaultModelVal,
-	);
+	const primaryModel =
+		overrideModels?.[0] ?? frontmatterModel ?? defaultModelVal;
 	const modelPriority = overrideModels ? overrideModels.slice(1) : [];
 
 	// Non-model fields: JSON > frontmatter
-	const toolsRaw =
-		pickFirst(configOverride?.tools?.join(","), frontmatter.tools) ?? "";
+	const toolsRaw = configOverride?.tools?.join(",") ?? frontmatter.tools ?? "";
 	const tools = toolsRaw
 		.split(",")
 		.map((t: string) => t.trim())
 		.filter(Boolean);
 
 	const description =
-		pickFirst(configOverride?.description, frontmatter.description) ??
-		agentName;
+		configOverride?.description ?? frontmatter.description ?? agentName;
 
 	return {
 		model: primaryModel,

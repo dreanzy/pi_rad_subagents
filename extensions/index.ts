@@ -33,6 +33,7 @@ import {
 	type SubagentDetails,
 	MAX_CONCURRENCY,
 	MAX_PARALLEL_TASKS,
+	emptyUsage,
 	formatToolCall,
 	formatUsageStats,
 	getDisplayItems,
@@ -50,35 +51,26 @@ const COLLAPSED_ITEM_COUNT = 10;
 
 // ── Tool parameter schema ───────────────────────────────────────────
 
-const TaskItem = Type.Object({
-	agent: Type.String({ description: "Name of the agent to invoke" }),
-	task: Type.String({ description: "Task to delegate to the agent" }),
-	cwd: Type.Optional(
-		Type.String({ description: "Working directory for the agent process" }),
-	),
-	timeoutMs: Type.Optional(
-		Type.Number({
-			description:
-				"Per-task timeout in milliseconds. Set based on task complexity (e.g. 60_000 for a quick lookup, 600_000 for deep research). The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
-		}),
-	),
-});
+function agentItemSchema(taskDesc: string, timeoutDesc: string) {
+	return Type.Object({
+		agent: Type.String({ description: "Name of the agent to invoke" }),
+		task: Type.String({ description: taskDesc }),
+		cwd: Type.Optional(
+			Type.String({ description: "Working directory for the agent process" }),
+		),
+		timeoutMs: Type.Optional(Type.Number({ description: timeoutDesc })),
+	});
+}
 
-const ChainItem = Type.Object({
-	agent: Type.String({ description: "Name of the agent to invoke" }),
-	task: Type.String({
-		description: "Task with optional {previous} placeholder for prior output",
-	}),
-	cwd: Type.Optional(
-		Type.String({ description: "Working directory for the agent process" }),
-	),
-	timeoutMs: Type.Optional(
-		Type.Number({
-			description:
-				"Per-step timeout in milliseconds. The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
-		}),
-	),
-});
+const TaskItem = agentItemSchema(
+	"Task to delegate to the agent",
+	"Per-task timeout in milliseconds. Set based on task complexity (e.g. 60_000 for a quick lookup, 600_000 for deep research). The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+);
+
+const ChainItem = agentItemSchema(
+	"Task with optional {previous} placeholder for prior output",
+	"Per-step timeout in milliseconds. The subagent process is killed at the deadline and any partial output is returned with stopReason 'timeout'. Overrides the top-level timeoutMs. Omit for no timeout.",
+);
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 	description:
@@ -301,19 +293,11 @@ function renderSingleResult(
 		// Show rejection info
 		if (r.rejected) {
 			container.addChild(
-				new Text(
-					theme.fg("warning", `[Task Rejected] ${r.rejected.reason}`),
-					0,
-					0,
-				),
+				new Text(theme.fg("warning", `[Task Rejected] ${r.rejected.reason}`), 0, 0),
 			);
 			if (r.rejected.suggestion)
 				container.addChild(
-					new Text(
-						theme.fg("dim", `Suggestion: ${r.rejected.suggestion}`),
-						0,
-						0,
-					),
+					new Text(theme.fg("dim", `Suggestion: ${r.rejected.suggestion}`), 0, 0),
 				);
 		}
 		container.addChild(new Spacer(1));
@@ -436,6 +420,53 @@ function renderSingleItemBody(
 	return body;
 }
 
+/**
+ * Per-result expanded block (step header + task + output body), shared by
+ * chain and parallel renderers — only the header separator differs.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
+function renderExpandedStep(
+	r: SingleResult,
+	theme: any,
+	mdTheme: ReturnType<typeof getMarkdownTheme>,
+	separator: string,
+): Container {
+	const step = new Container();
+	step.addChild(
+		new Text(
+			`${theme.fg("muted", separator) + theme.fg("accent", r.agent)} ${resultIcon(r, theme)}`,
+			0,
+			0,
+		),
+	);
+	step.addChild(
+		new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0),
+	);
+	step.addChild(renderSingleItemBody(r, theme, mdTheme));
+	return step;
+}
+
+/**
+ * Per-result collapsed line, shared by chain and parallel renderers.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
+function renderStepLine(
+	r: SingleResult,
+	theme: any,
+	separator: string,
+): string {
+	const displayItems = getDisplayItems(r.messages);
+	let text = `\n\n${theme.fg("muted", separator)}${theme.fg("accent", r.agent)} ${resultIcon(r, theme)}`;
+	if (r.rejected) {
+		text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
+	} else if (displayItems.length === 0) {
+		text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
+	} else {
+		text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
+	}
+	return text;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderChainResults(
 	results: SingleResult[],
@@ -466,20 +497,10 @@ function renderChainResults(
 		);
 
 		for (const r of results) {
-			const rIcon = resultIcon(r, theme);
-
 			container.addChild(new Spacer(1));
 			container.addChild(
-				new Text(
-					`${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${rIcon}`,
-					0,
-					0,
-				),
+				renderExpandedStep(r, theme, mdTheme, `─── Step ${r.step}: `),
 			);
-			container.addChild(
-				new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0),
-			);
-			container.addChild(renderSingleItemBody(r, theme, mdTheme));
 		}
 
 		const usageStr = formatUsageStats(aggregateUsage(results));
@@ -497,16 +518,7 @@ function renderChainResults(
 		theme.fg("toolTitle", theme.bold("chain ")) +
 		theme.fg("accent", `${successCount}/${results.length} steps`);
 	for (const r of results) {
-		const rIcon = resultIcon(r, theme);
-		const displayItems = getDisplayItems(r.messages);
-		text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
-		if (r.rejected) {
-			text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
-		} else if (displayItems.length === 0) {
-			text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
-		} else {
-			text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
-		}
+		text += renderStepLine(r, theme, `─── Step ${r.step}: `);
 	}
 	const usageStr = formatUsageStats(aggregateUsage(results));
 	if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
@@ -549,20 +561,8 @@ function renderParallelResults(
 		);
 
 		for (const r of results) {
-			const rIcon = resultIcon(r, theme);
-
 			container.addChild(new Spacer(1));
-			container.addChild(
-				new Text(
-					`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`,
-					0,
-					0,
-				),
-			);
-			container.addChild(
-				new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0),
-			);
-			container.addChild(renderSingleItemBody(r, theme, mdTheme));
+			container.addChild(renderExpandedStep(r, theme, mdTheme, "─── "));
 		}
 
 		const usageStr = formatUsageStats(aggregateUsage(results));
@@ -576,16 +576,7 @@ function renderParallelResults(
 	// Collapsed or still running
 	let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
 	for (const r of results) {
-		const rIcon = resultIcon(r, theme);
-		const displayItems = getDisplayItems(r.messages);
-		text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)} ${rIcon}`;
-		if (r.rejected) {
-			text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
-		} else if (displayItems.length === 0) {
-			text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
-		} else {
-			text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
-		}
+		text += renderStepLine(r, theme, "─── ");
 	}
 	if (!isRunning) {
 		const usageStr = formatUsageStats(aggregateUsage(results));
@@ -619,6 +610,8 @@ export default function (pi: ExtensionAPI) {
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
+			const availableList = () =>
+				agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
@@ -631,8 +624,7 @@ export default function (pi: ExtensionAPI) {
 			);
 
 			if (modeCount !== 1) {
-				const available =
-					agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+				const available = availableList();
 				return {
 					content: [
 						{
@@ -646,10 +638,8 @@ export default function (pi: ExtensionAPI) {
 
 			// ── Vision requirement check (requiresVision agents, e.g. observer) ──
 			const requestedNames: string[] = [];
-			if (params.chain)
-				requestedNames.push(...params.chain.map((s) => s.agent));
-			if (params.tasks)
-				requestedNames.push(...params.tasks.map((t) => t.agent));
+			if (params.chain) requestedNames.push(...params.chain.map((s) => s.agent));
+			if (params.tasks) requestedNames.push(...params.tasks.map((t) => t.agent));
 			if (params.agent) requestedNames.push(params.agent);
 
 			for (const name of requestedNames) {
@@ -713,10 +703,7 @@ export default function (pi: ExtensionAPI) {
 
 				for (let i = 0; i < params.chain.length; i++) {
 					const step = params.chain[i]!;
-					const taskWithContext = step.task.replace(
-						/\{previous\}/g,
-						previousOutput,
-					);
+					const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
 
 					const chainUpdate: OnUpdateCallback | undefined = onUpdate
 						? (partial) => {
@@ -793,15 +780,7 @@ export default function (pi: ExtensionAPI) {
 						exitCode: -1,
 						messages: [],
 						stderr: "",
-						usage: {
-							input: 0,
-							output: 0,
-							cacheRead: 0,
-							cacheWrite: 0,
-							cost: 0,
-							contextTokens: 0,
-							turns: 0,
-						},
+						usage: emptyUsage(),
 					};
 				}
 
@@ -910,8 +889,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const available =
-				agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+			const available = availableList();
 			return {
 				content: [
 					{
@@ -952,8 +930,7 @@ export default function (pi: ExtensionAPI) {
 					theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
 					theme.fg("muted", ` [${scope}]`);
 				for (const t of args.tasks.slice(0, 3)) {
-					const preview =
-						t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
+					const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
 					text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
 				}
 				if (args.tasks.length > 3)
@@ -978,22 +955,13 @@ export default function (pi: ExtensionAPI) {
 			const details = result.details as SubagentDetails | undefined;
 			if (!details || details.results.length === 0) {
 				const text = result.content[0];
-				return new Text(
-					text?.type === "text" ? text.text : "(no output)",
-					0,
-					0,
-				);
+				return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
 			}
 
 			const mdTheme = getMarkdownTheme();
 
 			if (details.mode === "single" && details.results.length === 1) {
-				return renderSingleResult(
-					details.results[0]!,
-					theme,
-					expanded,
-					mdTheme,
-				);
+				return renderSingleResult(details.results[0]!, theme, expanded, mdTheme);
 			}
 
 			if (details.mode === "chain") {
@@ -1057,8 +1025,7 @@ export default function (pi: ExtensionAPI) {
 		(message, options, theme) => {
 			let text = theme.fg("toolTitle", theme.bold("[@] ")) + message.content;
 			if (options.expanded && message.details) {
-				text +=
-					"\n" + theme.fg("dim", JSON.stringify(message.details, null, 2));
+				text += "\n" + theme.fg("dim", JSON.stringify(message.details, null, 2));
 			}
 			return new Text(text, 0, 0);
 		},
