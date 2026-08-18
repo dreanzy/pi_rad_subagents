@@ -118,7 +118,7 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 **Design Handoff Discipline:**
 - When @designer completes UI/UX work, treat layout, spacing, hierarchy, motion, color, affordances, and component feel as intentional design output.
 - Do not later simplify, normalize, or refactor in ways that flatten the design.
-- Review and improve user-facing copy after designer work, because designer copy may be weak. Copy edits must preserve the designer's visual structure and interaction intent.
+- Review and improve user-facing copy after @designer work, because @designer copy may be weak. Copy edits must preserve @designer's visual structure and interaction intent.
 - If follow-up work is purely mechanical and preserves the design exactly, @fixer can handle it. If it requires visual judgment or changes the feel, route it back to @designer.
 
 ### 5. Verify
