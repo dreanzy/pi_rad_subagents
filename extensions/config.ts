@@ -170,11 +170,11 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 	return merged;
 }
 
-/** Read and parse a JSON file, returning {} on failure. */
-function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
+export function readJSONSafe(filePath: string): RadSubagentsPluginConfig {
 	try {
 		const raw = fs.readFileSync(filePath, "utf-8");
-		return JSON.parse(raw) as RadSubagentsPluginConfig;
+		// Strip a UTF-8 BOM (RFC 8259 permits one; e.g. Windows Notepad) so JSON.parse does not choke.
+		return JSON.parse(raw.replace(/^\uFEFF/, "")) as RadSubagentsPluginConfig;
 	} catch (err) {
 		console.error(`[rad-subagents] Failed to read config at ${filePath}:`, err);
 		return {};

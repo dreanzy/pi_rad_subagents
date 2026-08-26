@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { isAgentDisabled, resolveAgentConfig } from "../extensions/config.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	isAgentDisabled,
+	readJSONSafe,
+	resolveAgentConfig,
+} from "../extensions/config.ts";
+
+describe("readJSONSafe", () => {
+	it("strips a UTF-8 BOM before parsing", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rad-bom-test-"));
+		const cfg = join(dir, "bom.json");
+		writeFileSync(cfg, `\uFEFF${JSON.stringify({ agents: {} })}`);
+		expect(readJSONSafe(cfg)).toEqual({ agents: {} });
+	});
+});
 
 describe("isAgentDisabled", () => {
 	it("returns false when agent not in config", () => {
