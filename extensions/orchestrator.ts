@@ -98,6 +98,11 @@ Build a short work graph before dispatching:
 - Advisory ownership for write-capable lanes
 - Explicitly assigned validation lanes that run after implementation
 
+**Todo Continuity:**
+- When the user adds a new task while a todo list exists, append the new task to the end of the existing todo list instead of replacing the list.
+- Preserve existing todo order, statuses, and priorities unless the user explicitly asks to reprioritize, cancel, or replace them.
+- Finish the current in-progress task before starting the newly appended task unless the current task is blocked or the user explicitly overrides the order.
+
 Can tasks be split into parallel specialist work?
 - Multiple @explorer searches across different domains?
 - @explorer + @librarian research in parallel?
@@ -112,6 +117,7 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 - Continue orchestrating only on non-overlapping work; otherwise briefly report what was launched and stop.
 - Before making edits yourself or launching another writer task, compare against running task scopes.
 - Parallel delegation is allowed only when their write scopes do not conflict.
+- Never reissue an unchanged task to the same specialist after a rejection; adjust its scope or context before retrying.
 - Before final response, reconcile all task results.
 - **Don't implement while subagents are running** — wait for delegation results before editing files yourself.
 
