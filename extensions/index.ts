@@ -125,6 +125,12 @@ const SubagentParams = Type.Object({
 				"Default timeout in milliseconds applied to all tasks/steps. Estimate from complexity: ~30_000 for trivial lookups, 60_000-120_000 for typical research, up to 600_000 for deep multi-step work. At the deadline the subagent is killed and partial output is returned with stopReason 'timeout' — the orchestrator can then retry with a bigger budget or a narrower task. Per-task timeoutMs overrides this. Omit for no timeout. IMPORTANT: always set a timeout — without one, a stuck subagent (e.g. hung network call) blocks forever.",
 		}),
 	),
+	retryOnTimeout: Type.Optional(
+		Type.Number({
+			description:
+				"How many times to automatically retry a task that hit its timeout (default 1, max 3, 0 disables). Each retry gets a fresh wall-clock budget; the partial output from the timed-out attempt is injected as CONTEXT so the retry resumes rather than restarting from scratch. The final result keeps stopReason 'timeout' with timeoutRetries set.",
+		}),
+	),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -588,7 +594,7 @@ export default function (pi: ExtensionAPI) {
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").`,
 			`If an agent name you need (e.g. referenced by a skill) is not in the list above, try it anyway — it may be a built-in hidden alias. On failure, the tool reports available agents and aliases.`,
-			"TIMEOUTS: always pass timeoutMs (top-level default or per-task) estimated from task complexity — the subagent is killed at the deadline and partial output returned with stopReason 'timeout'; without it a hung subagent blocks forever.",
+			"TIMEOUTS: always pass timeoutMs (top-level default or per-task) estimated from task complexity — the subagent is killed at the deadline and partial output returned with stopReason 'timeout'; without it a hung subagent blocks forever. Timeouts auto-retry by default (retryOnTimeout, default 1) with the partial output injected as CONTEXT so the retry resumes instead of restarting; a run silent for 120s is flagged possiblyStuck in the result.",
 		].join(" "),
 		parameters: SubagentParams,
 
@@ -717,6 +723,7 @@ export default function (pi: ExtensionAPI) {
 						chainUpdate,
 						mkDetails,
 						step.timeoutMs ?? params.timeoutMs,
+						{ retryOnTimeout: params.retryOnTimeout },
 					);
 					results.push(result);
 
@@ -815,6 +822,7 @@ export default function (pi: ExtensionAPI) {
 							},
 							mkDetails,
 							t.timeoutMs ?? params.timeoutMs,
+							{ retryOnTimeout: params.retryOnTimeout },
 						);
 						allResults[index] = result;
 						emitParallelUpdate();
@@ -825,8 +833,15 @@ export default function (pi: ExtensionAPI) {
 				const successCount = results.filter((r) => !isFailedResult(r)).length;
 				const summaries = results.map((r) => {
 					const output = truncateParallelOutput(getResultOutput(r));
+					const flags: string[] = [];
+					if (r.stopReason && r.stopReason !== "end") flags.push(r.stopReason);
+					if (r.possiblyStuck) flags.push("possiblyStuck");
+					if (r.timedOut && r.timeoutRetries)
+						flags.push(
+							`${r.timeoutRetries} retr${r.timeoutRetries === 1 ? "y" : "ies"}`,
+						);
 					const status = isFailedResult(r)
-						? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
+						? `failed${flags.length ? ` (${flags.join(", ")})` : ""}`
 						: "completed";
 					return `### [${r.agent}] ${status}\n\n${output}`;
 				});
@@ -854,6 +869,7 @@ export default function (pi: ExtensionAPI) {
 					onUpdate,
 					mkDetails,
 					params.timeoutMs,
+					{ retryOnTimeout: params.retryOnTimeout },
 				);
 				if (isFailedResult(result)) {
 					return {

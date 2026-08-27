@@ -18,6 +18,20 @@ import { loadConfig } from "./config.ts";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
+
+/**
+ * A subagent that produced no output for this long is reported as
+ * `possiblyStuck` — it may be looping on reads instead of converging.
+ * Modeled after oh-my-opencode-slim's STUCK_IDLE_THRESHOLD_MS (120s).
+ * Detection only: never kills or retries on its own.
+ */
+export const STUCK_IDLE_THRESHOLD_MS = 120_000;
+
+/** Default number of retries after a task-level timeout (0 disables). */
+export const DEFAULT_RETRY_ON_TIMEOUT = 1;
+
+/** Ceiling for retryOnTimeout so a misconfigured value cannot loop forever. */
+export const MAX_RETRY_ON_TIMEOUT = 3;
 /** Per-task output byte cap for parallel-summary truncation. */
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
 
@@ -75,6 +89,72 @@ export interface SingleResult {
 	rejected?: { reason: string; suggestion?: string };
 	/** Whether this error is safe to retry (transient vs permanent). */
 	retryable?: boolean;
+	/** True when the run hit the wall-clock deadline (stopReason 'timeout'). */
+	timedOut?: boolean;
+	/** True when the run went silent for STUCK_IDLE_THRESHOLD_MS without output. */
+	possiblyStuck?: boolean;
+	/** Number of timeout retries actually performed (0 = none). */
+	timeoutRetries?: number;
+}
+
+export interface RunSingleAgentOptions {
+	/**
+	 * Retries after a task-level timeout (0 disables). Each retry gets a fresh
+	 * wall-clock budget; partial output from the timed-out attempt is injected
+	 * as CONTEXT: so the retry resumes instead of restarting from scratch.
+	 * Capped at MAX_RETRY_ON_TIMEOUT. Defaults to DEFAULT_RETRY_ON_TIMEOUT.
+	 */
+	retryOnTimeout?: number;
+}
+
+/**
+ * Timeout-retry loop shared by single/parallel/chain execution.
+ *
+ * Runs `attempt` until it returns a non-timeout result or the retry budget is
+ * exhausted. Each retry receives the previous attempt's final output as
+ * `contextPrefix` (a CONTEXT: resume), and the returned result reports the
+ * true retry count via `timeoutRetries`. Pure and injectable for tests.
+ */
+export async function retryLoop(
+	attempt: (
+		contextPrefix: string | undefined,
+		priorRetries: number,
+	) => Promise<SingleResult>,
+	retryOnTimeout: number,
+	getOutput: (messages: Message[]) => string,
+): Promise<SingleResult> {
+	let lastPartial: SingleResult | null = null;
+	let runRetries = 0;
+
+	while (runRetries <= retryOnTimeout) {
+		const isRetry = runRetries > 0;
+		const contextPrefix = isRetry
+			? getOutput(lastPartial?.messages ?? [])?.trim() || undefined
+			: undefined;
+
+		const result = await attempt(contextPrefix, runRetries);
+
+		if (result.timedOut) {
+			lastPartial = result;
+			runRetries++;
+			// Keep retrying until the budget is spent, then report the last attempt.
+			if (runRetries <= retryOnTimeout) continue;
+		}
+		return result;
+	}
+
+	// Unreachable in practice (retryOnTimeout is clamped ≥ 0); kept for TS.
+	return (
+		lastPartial ?? {
+			agent: "",
+			agentSource: "unknown",
+			task: "",
+			exitCode: 1,
+			messages: [],
+			stderr: "retry budget exhausted",
+			usage: emptyUsage(),
+		}
+	);
 }
 
 export interface SubagentDetails {
@@ -86,7 +166,7 @@ export interface SubagentDetails {
 
 export type DisplayItem =
 	| { type: "text"; text: string }
-	| { type: "toolCall"; name: string; args: Record<string, any> };
+	| { type: "toolCall"; name: string; args: Record<string, unknown> };
 
 export type MakeDetailsFn = (results: SingleResult[]) => SubagentDetails;
 
@@ -296,13 +376,23 @@ export function getResultOutput(result: SingleResult): string {
 		result.retryable === undefined
 			? ""
 			: `\n[Retryable: ${result.retryable ? "yes" : "no"}]`;
+	const stuckLabel =
+		result.possiblyStuck === true
+			? "\n[possiblyStuck: silent >120s — may be looping; consider a narrower task or task_revive-style retry with more budget]"
+			: "";
+	const timeoutLabel =
+		result.timedOut === true
+			? `\n[timed out${result.timeoutRetries ? ` after ${result.timeoutRetries} retr${result.timeoutRetries === 1 ? "y" : "ies"}` : ""}]`
+			: "";
 	if (isFailedResult(result)) {
 		const parts: string[] = [];
 		if (result.errorMessage) parts.push(result.errorMessage);
 		if (result.stderr) parts.push(result.stderr);
 		const output = getFinalOutput(result.messages);
 		if (output) parts.push(output);
-		return parts.join("\n") || "(no output)" + retryLabel;
+		return (
+			(parts.join("\n") || "(no output)") + retryLabel + timeoutLabel + stuckLabel
+		);
 	}
 	const output = getFinalOutput(result.messages) || "(no output)";
 	return output + retryLabel;
@@ -404,7 +494,12 @@ export async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: MakeDetailsFn,
 	timeoutMs: number | undefined,
+	options?: RunSingleAgentOptions,
 ): Promise<SingleResult> {
+	const retryOnTimeout = Math.min(
+		Math.max(0, options?.retryOnTimeout ?? DEFAULT_RETRY_ON_TIMEOUT),
+		MAX_RETRY_ON_TIMEOUT,
+	);
 	const pluginConfig = loadConfig(defaultCwd);
 	const resolvedAgentName = pluginConfig.agentAliases?.[agentName] ?? agentName;
 
@@ -435,6 +530,76 @@ export async function runSingleAgent(
 	if (agent.model) models.push(agent.model);
 	if (agent.modelPriority) models.push(...agent.modelPriority);
 
+	// Outer loop: timeout retries (fresh wall-clock budget per attempt).
+	const attempt = async (
+		contextPrefix: string | undefined,
+		priorRetries: number,
+	) => {
+		try {
+			return await runAttempt(
+				{
+					defaultCwd,
+					agents,
+					agentName,
+					task,
+					cwd,
+					step,
+					signal,
+					onUpdate,
+					makeDetails,
+					timeoutMs,
+					contextPrefix,
+					priorRetries,
+				},
+				models,
+				agent,
+			);
+		} catch (err) {
+			// aborted (parent signal)
+			return {
+				agent: agentName,
+				agentSource: agent.source,
+				task,
+				exitCode: 1,
+				messages: [],
+				stderr: String(err),
+				usage: emptyUsage(),
+				model: agent.model,
+				step,
+				stopReason: "aborted",
+				errorMessage: String(err),
+			};
+		}
+	};
+
+	return retryLoop(attempt, retryOnTimeout, getFinalOutput);
+}
+
+interface RunAttemptContext {
+	defaultCwd: string;
+	agents: AgentConfig[];
+	agentName: string;
+	task: string;
+	cwd?: string;
+	step?: number;
+	signal?: AbortSignal;
+	onUpdate?: OnUpdateCallback;
+	makeDetails: MakeDetailsFn;
+	timeoutMs?: number;
+	contextPrefix?: string;
+	priorRetries: number;
+}
+
+/**
+ * One attempt: walk the model priority chain. Returns the first non-failed
+ * result, or the last failure if all models failed. A timeout returns the
+ * partial result with timedOut set — the caller decides whether to retry.
+ */
+async function runAttempt(
+	ctx: RunAttemptContext,
+	models: string[],
+	agent: AgentConfig,
+): Promise<SingleResult> {
 	let lastError: SingleResult | null = null;
 
 	for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
@@ -444,32 +609,33 @@ export async function runSingleAgent(
 		if (currentModel) args.push("--model", currentModel);
 		if (agent.tools && agent.tools.length > 0)
 			args.push("--tools", agent.tools.join(","));
+		if (ctx.contextPrefix) args.push(`CONTEXT: ${ctx.contextPrefix}`);
 
 		let tmpPromptDir: string | null = null;
 		let tmpPromptPath: string | null = null;
 
 		const currentResult: SingleResult = {
-			agent: agentName,
+			agent: ctx.agentName,
 			agentSource: agent.source,
-			task,
+			task: ctx.task,
 			exitCode: -1,
 			messages: [],
 			stderr: "",
 			usage: emptyUsage(),
 			model: currentModel || agent.model,
-			step,
+			step: ctx.step,
 		};
 
 		const emitUpdate = () => {
-			if (onUpdate) {
-				onUpdate({
+			if (ctx.onUpdate) {
+				ctx.onUpdate({
 					content: [
 						{
 							type: "text",
 							text: getFinalOutput(currentResult.messages) || "(running...)",
 						},
 					],
-					details: makeDetails([currentResult]),
+					details: ctx.makeDetails([currentResult]),
 				});
 			}
 		};
@@ -485,15 +651,23 @@ export async function runSingleAgent(
 			tmpPromptPath = tmp.filePath;
 			args.push("--append-system-prompt", tmpPromptPath);
 
-			args.push(`Task: ${task}`);
+			args.push(`Task: ${ctx.task}`);
 			let wasAborted = false;
 			let timedOut = false;
 			let timeoutTimer: NodeJS.Timeout | undefined;
+			let maybeStuck = false;
+			let stuckTimer: NodeJS.Timeout | undefined;
+			const clearStuckTimer = () => {
+				if (stuckTimer) {
+					clearTimeout(stuckTimer);
+					stuckTimer = undefined;
+				}
+			};
 
 			const exitCode = await new Promise<number>((resolve) => {
 				const invocation = getPiInvocation(args);
 				const proc = spawn(invocation.command, invocation.args, {
-					cwd: cwd ?? defaultCwd,
+					cwd: ctx.cwd ?? ctx.defaultCwd,
 					shell: false,
 					stdio: ["ignore", "pipe", "pipe"],
 					env: {
@@ -505,6 +679,7 @@ export async function runSingleAgent(
 
 				const processLine = (line: string) => {
 					if (!line.trim()) return;
+					clearStuckTimer();
 					let event: any;
 					try {
 						event = JSON.parse(line);
@@ -547,6 +722,12 @@ export async function runSingleAgent(
 					buffer += data.toString();
 					const lines = buffer.split("\n");
 					buffer = lines.pop() || "";
+					clearStuckTimer();
+					stuckTimer = setTimeout(() => {
+						maybeStuck = true;
+						currentResult.possiblyStuck = true;
+						emitUpdate();
+					}, STUCK_IDLE_THRESHOLD_MS);
 					for (const line of lines) processLine(line);
 				});
 
@@ -555,6 +736,7 @@ export async function runSingleAgent(
 				});
 
 				proc.on("close", (code: number | null) => {
+					clearStuckTimer();
 					if (buffer.trim()) processLine(buffer);
 					resolve(code ?? 0);
 				});
@@ -564,6 +746,7 @@ export async function runSingleAgent(
 				});
 
 				const killProc = () => {
+					clearStuckTimer();
 					proc.kill("SIGTERM");
 					// Windows: proc.kill only terminates the direct child, not its descendants
 					if (process.platform === "win32" && proc.pid !== undefined) {
@@ -575,22 +758,22 @@ export async function runSingleAgent(
 						if (!proc.killed) proc.kill("SIGKILL");
 					}, 5000);
 				};
-				if (signal) {
+				if (ctx.signal) {
 					const onAbort = () => {
 						wasAborted = true;
 						killProc();
 					};
-					if (signal.aborted) onAbort();
+					if (ctx.signal.aborted) onAbort();
 					else
-						signal.addEventListener("abort", onAbort, {
+						ctx.signal.addEventListener("abort", onAbort, {
 							once: true,
 						});
 				}
-				if (timeoutMs !== undefined && timeoutMs > 0) {
+				if (ctx.timeoutMs !== undefined && ctx.timeoutMs > 0) {
 					timeoutTimer = setTimeout(() => {
 						timedOut = true;
 						killProc();
-					}, timeoutMs);
+					}, ctx.timeoutMs);
 				}
 			});
 
@@ -603,8 +786,11 @@ export async function runSingleAgent(
 			if (timedOut) {
 				currentResult.stopReason = "timeout";
 				currentResult.exitCode = 124;
-				currentResult.errorMessage = `Task exceeded ${timeoutMs}ms timeout`;
-				currentResult.retryable = false;
+				currentResult.timedOut = true;
+				if (maybeStuck) currentResult.possiblyStuck = true;
+				currentResult.errorMessage = `Task exceeded ${ctx.timeoutMs}ms timeout`;
+				currentResult.retryable = ctx.priorRetries < MAX_RETRY_ON_TIMEOUT;
+				currentResult.timeoutRetries = ctx.priorRetries;
 				return currentResult;
 			}
 
@@ -654,15 +840,15 @@ export async function runSingleAgent(
 	// All models exhausted — return the last failure
 	return (
 		lastError ?? {
-			agent: agentName,
+			agent: ctx.agentName,
 			agentSource: agent.source,
-			task,
+			task: ctx.task,
 			exitCode: 1,
 			messages: [],
 			stderr: "All models exhausted",
 			usage: emptyUsage(),
 			model: agent.model,
-			step,
+			step: ctx.step,
 		}
 	);
 }

@@ -58,6 +58,7 @@ rad-subagents(chain: [
 | `confirmProjectAgents` | Prompt before running project-local agents. Default: `true` |
 | `cwd` | Working directory for the agent process (single mode) |
 | `timeoutMs` | Default timeout applied to all tasks/steps; per-task `timeoutMs` overrides. The subagent is killed at the deadline (partial output returned with `stopReason: "timeout"`). Omit for no timeout — setting one is recommended |
+| `retryOnTimeout` | Automatic retries after a task-level timeout (default `1`, max `3`, `0` disables). Each retry gets a fresh wall-clock budget; the partial output from the timed-out attempt is injected as `CONTEXT:` so the retry resumes instead of restarting from scratch. The final result keeps `stopReason: "timeout"` and reports `timeoutRetries`. A run that goes silent for 120s is flagged `possiblyStuck` in the result |
 
 `tasks` and `chain` items also accept optional `cwd` and `timeoutMs` per item.
 
