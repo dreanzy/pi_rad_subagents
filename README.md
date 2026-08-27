@@ -72,6 +72,22 @@ Toggle workflow manager mode. When enabled, the LLM acts as orchestrator — pla
 
 On by default; disable with `orchestrator.enabled: false` in `rad-subagents.json` (see Configuration).
 
+### Model check command
+
+```
+/rad-models-check
+```
+
+Validate every model reference in `rad-subagents.json` (project and global) — `defaultModel` plus each agent's `model` array, including fallback entries — against the pi model registry.
+
+A reference is reported invalid when:
+
+- the model is unknown in the registry, or
+- its provider has no configured auth, or
+- a live probe fails with a model-level error (e.g. `400 unsupported_model` for models delisted from their endpoint)
+
+Probing sends one minimal completion per statically-valid reference (bounded 15s timeout, concurrency 4, Escape-cancellable progress display). Transient errors (rate limits, network) are treated as inconclusive and do not flag the model. The report is grouped per config file and ends with a summary line; non-TUI sessions get a notify summary instead.
+
 ## Agent Fleet
 
 | Agent | Role | Tools |

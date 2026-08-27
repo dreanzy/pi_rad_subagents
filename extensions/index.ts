@@ -45,6 +45,8 @@ import {
 	truncateParallelOutput,
 } from "./executor.ts";
 import { registerAgentAutocomplete } from "./autocomplete.ts";
+import { registerModelsCheckCommand } from "./check-models.ts";
+import { findModelByRef, type RegistryModelLike } from "./model-check.ts";
 import { registerOrchestrator } from "./orchestrator.ts";
 
 const COLLAPSED_ITEM_COUNT = 10;
@@ -153,32 +155,11 @@ export function findImagePaths(text: string, cwd: string): string[] {
 	return found;
 }
 
-interface RegistryModelLike {
-	id: string;
-	provider: string;
-	input: string[];
-}
-
-/**
- * Resolve a model reference ("provider:id" or bare id) from the model registry.
- */
-export function findModelByRef(
-	registry: { getAll(): RegistryModelLike[] },
-	ref: string,
-): RegistryModelLike | undefined {
-	const all = registry.getAll();
-	if (ref.includes(":")) {
-		const [provider, id] = ref.split(":");
-		return all.find((m) => m.provider === provider && m.id === id);
-	}
-	return (
-		all.find((m) => m.id === ref) ?? all.find((m) => m.id.endsWith(`:${ref}`))
-	);
-}
-
 /**
  * Assert a requiresVision agent runs on a vision-capable model.
  * Returns an error message, or null when ok. Unresolvable models are allowed through.
+ * Note: a model whose input modalities are unknown (input omitted) is treated
+ * as non-vision, so an observer-like agent on such a model gets flagged.
  */
 export function checkVisionRequirement(
 	agent: {
@@ -195,7 +176,7 @@ export function checkVisionRequirement(
 	if (!agent.requiresVision) return null;
 	const ref = agent.model;
 	const model = ref ? findModelByRef(ctx.modelRegistry, ref) : ctx.model;
-	if (model && !model.input.includes("image")) {
+	if (model && !(model.input?.includes("image") ?? false)) {
 		return `Agent "${agent.name}" requires a vision-capable model, but "${model.id}" does not support image input. Configure a vision model in ${agent.filePath} (frontmatter "model:").`;
 	}
 	return null;
@@ -1041,6 +1022,9 @@ export default function (pi: ExtensionAPI) {
 
 	// Register agent @-mention autocomplete
 	registerAgentAutocomplete(pi);
+
+	// Register model-config check command
+	registerModelsCheckCommand(pi);
 
 	// Register orchestrator mode (optional)
 	registerOrchestrator(pi);

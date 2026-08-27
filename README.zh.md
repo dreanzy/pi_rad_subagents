@@ -72,6 +72,22 @@ rad-subagents(chain: [
 
 默认开启；可通过 `rad-subagents.json` 中的 `orchestrator.enabled: false` 关闭（见配置）。
 
+### 模型检查命令
+
+```
+/rad-models-check
+```
+
+校验 `rad-subagents.json`（项目级和全局）中的每个模型引用 — `defaultModel` 以及每个 agent 的 `model` 数组（含 fallback 条目）— 是否对 pi 模型注册表有效。
+
+以下情况报告为失效：
+
+- 模型在注册表中不存在，或
+- 其 provider 未配置认证，或
+- 实时探测返回模型级错误（如已从 endpoint 下架的模型返回 `400 unsupported_model`）
+
+探测会为每个静态有效的引用发送一次最小补全请求（15s 超时、并发 4、Escape 可取消的进度显示）。瞬时错误（限流、网络）视为不确定，不标记为失效。报告按配置文件分组并以汇总行结尾；非 TUI 会话改为 notify 摘要。
+
 ## Agent 舰队
 
 | Agent | 角色 | 工具 |

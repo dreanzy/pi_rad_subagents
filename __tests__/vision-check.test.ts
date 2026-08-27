@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkVisionRequirement, findModelByRef } from "../extensions/index.ts";
+import { checkVisionRequirement } from "../extensions/index.ts";
+import { findModelByRef } from "../extensions/model-check.ts";
 
 const registry = {
 	getAll: () => [
@@ -10,10 +11,16 @@ const registry = {
 };
 
 describe("findModelByRef", () => {
-	it("resolves bare ids and provider:ids", () => {
+	it("resolves bare ids and provider/model refs", () => {
 		expect(findModelByRef(registry, "gpt-4o")?.id).toBe("gpt-4o");
-		expect(findModelByRef(registry, "google:gemini-2.5-flash")?.id).toBe(
+		expect(findModelByRef(registry, "google/gemini-2.5-flash")?.id).toBe(
 			"gemini-2.5-flash",
+		);
+	});
+
+	it("resolves refs with thinking-level suffix", () => {
+		expect(findModelByRef(registry, "deepseek/deepseek-chat:high")?.id).toBe(
+			"deepseek-chat",
 		);
 	});
 
