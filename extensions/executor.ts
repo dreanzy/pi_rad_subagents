@@ -27,6 +27,9 @@ export const MAX_CONCURRENCY = 4;
  */
 export const STUCK_IDLE_THRESHOLD_MS = 120_000;
 
+/** Sessions kept for resume are swept after this age. */
+export const SESSION_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+
 /** Default number of retries after a task-level timeout (0 disables). */
 export const DEFAULT_RETRY_ON_TIMEOUT = 1;
 
@@ -91,6 +94,12 @@ export interface SingleResult {
 	retryable?: boolean;
 	/** True when the run hit the wall-clock deadline (stopReason 'timeout'). */
 	timedOut?: boolean;
+	/**
+	 * Path of the pi session file backing this run, kept when the task timed
+	 * out with retries exhausted so the caller can resume it (task_revive).
+	 * Undefined otherwise — the file is deleted on success/failure.
+	 */
+	sessionFile?: string;
 	/** True when the run went silent for STUCK_IDLE_THRESHOLD_MS without output. */
 	possiblyStuck?: boolean;
 	/** Number of timeout retries actually performed (0 = none). */
@@ -105,6 +114,12 @@ export interface RunSingleAgentOptions {
 	 * Capped at MAX_RETRY_ON_TIMEOUT. Defaults to DEFAULT_RETRY_ON_TIMEOUT.
 	 */
 	retryOnTimeout?: number;
+	/**
+	 * Resume an existing pi session file (jsonl) kept by a previous timed-out
+	 * run instead of creating a fresh session. The conversation — prior reads,
+	 * tool results, partial findings — continues from where it stopped.
+	 */
+	resumeSessionFile?: string;
 }
 
 /**
@@ -393,6 +408,10 @@ export function getResultOutput(result: SingleResult): string {
 		result.timedOut === true
 			? `\n[timed out${result.timeoutRetries ? ` after ${result.timeoutRetries} retr${result.timeoutRetries === 1 ? "y" : "ies"}` : ""}]`
 			: "";
+	const resumeLabel =
+		result.sessionFile === undefined
+			? ""
+			: `\n[session kept for resume: ${result.sessionFile}]\n[To resume, call rad-subagents again with the SAME agent and a task like "continue and finish", plus resumeSession: "${result.sessionFile}". The subagent continues from its partial findings instead of restarting.]`;
 	if (isFailedResult(result)) {
 		const parts: string[] = [];
 		if (result.errorMessage) parts.push(result.errorMessage);
@@ -400,7 +419,11 @@ export function getResultOutput(result: SingleResult): string {
 		const output = getFinalOutput(result.messages);
 		if (output) parts.push(output);
 		return (
-			(parts.join("\n") || "(no output)") + retryLabel + timeoutLabel + stuckLabel
+			(parts.join("\n") || "(no output)") +
+			retryLabel +
+			timeoutLabel +
+			stuckLabel +
+			resumeLabel
 		);
 	}
 	const output = getFinalOutput(result.messages) || "(no output)";
@@ -461,6 +484,39 @@ export async function mapWithConcurrencyLimit<TIn, TOut>(
 }
 
 // ── Subprocess management ───────────────────────────────────────────
+
+/**
+ * Sweep rad-session-* dirs older than `maxAgeMs`. Best-effort: a dir still
+ * locked by a live child is skipped and picked up on a later spawn.
+ *
+ * Activity is judged by the newest file mtime inside the dir, not the dir
+ * mtime — pi writes only the jsonl inside, so a long-running session would
+ * otherwise look stale and get deleted mid-flight.
+ */
+async function cleanupStaleSessions(maxAgeMs: number): Promise<void> {
+	const tmpRoot = os.tmpdir();
+	const entries = await fs.promises
+		.readdir(tmpRoot, { withFileTypes: true })
+		.catch(() => []);
+	const now = Date.now();
+	for (const e of entries) {
+		if (!e.isDirectory() || !e.name.startsWith("rad-session-")) continue;
+		const dir = path.join(tmpRoot, e.name);
+		try {
+			const files = await fs.promises.readdir(dir);
+			let newest = 0;
+			for (const f of files) {
+				const st = await fs.promises.stat(path.join(dir, f));
+				if (st.mtimeMs > newest) newest = st.mtimeMs;
+			}
+			if (now - newest > maxAgeMs) {
+				await fs.promises.rm(dir, { recursive: true, force: true });
+			}
+		} catch {
+			/* skip locked/vanished dirs */
+		}
+	}
+}
 
 async function writePromptToTempFile(
 	agentName: string,
@@ -548,14 +604,44 @@ export async function runSingleAgent(
 
 	// Per-task session file: kept across timeout retries so the retry resumes
 	// the real conversation (already-read files, tool results) instead of
-	// restarting from scratch. Removed when the task settles.
-	const sessionDir = await fs.promises.mkdtemp(
-		path.join(os.tmpdir(), "rad-session-"),
-	);
-	const sessionFile = path.join(
-		sessionDir,
-		`${agentName.replace(/[^\w.-]+/g, "_")}.jsonl`,
-	);
+	// restarting from scratch. Kept for resume only when the task timed out
+	// with retries exhausted; otherwise removed when the task settles.
+	//
+	// Resume mode: reuse the caller-provided session file (kept by an earlier
+	// timed-out run) so this run continues that conversation. It is never
+	// deleted here — it belongs to the earlier run's lifecycle.
+	const resumeFile = options?.resumeSessionFile;
+	if (resumeFile !== undefined) {
+		// pi silently creates a session file that does not exist, which would
+		// turn a resume into a cold start with the partial findings silently
+		// lost. Fail loudly instead.
+		try {
+			const st = await fs.promises.stat(resumeFile);
+			if (!st.isFile()) throw new Error("not a file");
+		} catch {
+			return {
+				agent: agentName,
+				agentSource: agent.source,
+				task,
+				exitCode: 1,
+				messages: [],
+				stderr: `resumeSession file not found: ${resumeFile}`,
+				usage: emptyUsage(),
+				retryable: false,
+				step,
+			};
+		}
+	}
+	const sessionDir = resumeFile
+		? path.dirname(resumeFile)
+		: await fs.promises.mkdtemp(path.join(os.tmpdir(), "rad-session-"));
+	const sessionFile =
+		resumeFile ??
+		path.join(sessionDir, `${agentName.replace(/[^\w.-]+/g, "_")}.jsonl`);
+	// Opportunistic TTL: stale sessions (older than a day) from tasks that
+	// timed out and were never resumed accumulate; sweep them on each spawn.
+	// Skip when resuming — the file is in active use.
+	if (!resumeFile) cleanupStaleSessions(SESSION_STALE_TTL_MS).catch(() => {});
 
 	// Outer loop: timeout retries (fresh wall-clock budget per attempt).
 	const attempt = async (
@@ -600,17 +686,35 @@ export async function runSingleAgent(
 		}
 	};
 
-	let result: SingleResult;
+	let result: SingleResult | undefined;
 	try {
 		result = await retryLoop(attempt, retryOnTimeout, getFinalOutput);
 	} finally {
-		// Task settled (success, retries exhausted, or thrown): drop the session
-		// file so it does not accumulate on disk. Best-effort on Windows where a
-		// still-open child may hold the file.
-		await fs.promises
-			.rm(sessionDir, { recursive: true, force: true })
-			.catch(() => {});
+		// Resume mode: the session file belongs to an earlier run's lifecycle;
+		// never delete it here, and report it back so the caller can keep
+		// chaining resumes.
+		if (resumeFile) {
+			if (result) result.sessionFile = sessionFile;
+		} else {
+			// Keep the session file when the task timed out with retries
+			// exhausted: the caller can resume it later. Drop it on success,
+			// failure, or abort. Note: retryOnTimeout=0 ("disable retries") also
+			// lands here — the session is still kept so the caller can resume
+			// manually.
+			const keepForResume =
+				result?.timedOut === true &&
+				(result?.timeoutRetries ?? 0) >= retryOnTimeout;
+			if (keepForResume) {
+				result!.sessionFile = sessionFile;
+			} else {
+				await fs.promises
+					.rm(sessionDir, { recursive: true, force: true })
+					.catch(() => {});
+			}
+		}
 	}
+	// retryLoop never throws (attempt catches everything), so result is always
+	// set here; the type keeps undefined only to satisfy the finally flow.
 	return result;
 }
 

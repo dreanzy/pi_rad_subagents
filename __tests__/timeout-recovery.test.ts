@@ -46,6 +46,20 @@ describe("timeout/stuck result formatting", () => {
 		expect(getResultOutput(r)).toContain("[timed out after 2 retries]");
 	});
 
+	it("mentions the kept session file and tells how to resume", () => {
+		const r = result({
+			exitCode: 124,
+			stopReason: "timeout",
+			timedOut: true,
+			timeoutRetries: 1,
+			sessionFile: "/tmp/rad-session-abc/explorer.jsonl",
+		});
+		expect(getResultOutput(r)).toContain(
+			"[session kept for resume: /tmp/rad-session-abc/explorer.jsonl]",
+		);
+		expect(getResultOutput(r)).toContain("resumeSession");
+	});
+
 	it("flags possiblyStuck when the run went silent", () => {
 		const r = result({
 			stopReason: "timeout",

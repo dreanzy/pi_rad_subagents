@@ -57,7 +57,9 @@ rad-subagents(chain: [
 | `agentScope` | 使用的 agent 目录：`"user"`（默认）、`"project"` 或 `"both"`（启用项目本地 agent `.pi/agents`） |
 | `confirmProjectAgents` | 运行项目本地 agent 前是否确认。默认 `true` |
 | `cwd` | agent 进程的工作目录（单次模式） |
+| `resumeSession` | 之前超时运行保留的 pi session 文件路径（见结果中 `sessionFile` / TUI 中 `[session kept for resume: ...]`）。设置后以 `--session <file>` 续跑该会话，而非新开——subagent 从先前运行的部分发现继续。仅单次模式。注意：仅当超时运行进展到 pi 写入消息后，session 文件才包含可用上下文——过紧的超时预算（慢模型约 ≲30s）可能留下空 session，此时续跑会报 `resumeSession file not found`；预算应设置到至少能让运行开始工作 |
 | `timeoutMs` | 应用于所有任务/步骤的默认超时；单项 `timeoutMs` 优先。到时限时 subagent 被终止（部分输出以 `stopReason: "timeout"` 返回）。省略则无超时——建议设置 |
+| `retryOnTimeout` | 任务级超时后的自动重试（默认 `1`，最大 `3`，`0` 禁用）。每次重试获得全新墙钟预算；超时 attempt 的部分输出以 `CONTEXT:` 注入，使重试续跑而非从头开始。最终结果保留 `stopReason: "timeout"` 并报告 `timeoutRetries`。静默超过 120s 的运行在结果中标记 `possiblyStuck`。重试耗尽时 pi session 文件被保留（结果含 `sessionFile`，TUI 显示 `[session kept for resume: ...]`），供后续续跑；超过 24h 的陈旧 session 在每次 spawn 时清扫 |
 
 `tasks` 和 `chain` 的每个条目也支持可选的 `cwd` 和 `timeoutMs`。
 

@@ -131,6 +131,12 @@ const SubagentParams = Type.Object({
 				"How many times to automatically retry a task that hit its timeout (default 1, max 3, 0 disables). Each retry gets a fresh wall-clock budget; the partial output from the timed-out attempt is injected as CONTEXT so the retry resumes rather than restarting from scratch. The final result keeps stopReason 'timeout' with timeoutRetries set.",
 		}),
 	),
+	resumeSession: Type.Optional(
+		Type.String({
+			description:
+				"Path to a pi session file (jsonl) kept by a previous timed-out run (see 'sessionFile' / '[session kept for resume: ...]'). When set, the subagent resumes that conversation (--session <file>) instead of starting a fresh one — continuing from the partial findings of the earlier run. For single mode only.",
+		}),
+	),
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -285,6 +291,17 @@ function renderSingleResult(
 			container.addChild(
 				new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0),
 			);
+		if (isError && r.sessionFile)
+			container.addChild(
+				new Text(
+					theme.fg(
+						"warning",
+						`[session kept for resume: ${r.sessionFile} — resume via rad-subagents with resumeSession: "${r.sessionFile}"]`,
+					),
+					0,
+					0,
+				),
+			);
 		// Show rejection info
 		if (r.rejected) {
 			container.addChild(
@@ -354,6 +371,8 @@ function renderSingleResult(
 		text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
 	} else if (isError && r.errorMessage) {
 		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
+		if (r.sessionFile)
+			text += `\n${theme.fg("warning", `[session kept for resume: ${r.sessionFile} — resume via rad-subagents with resumeSession: "${r.sessionFile}"]`)}`;
 	} else if (displayItems.length === 0) {
 		text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
 	} else {
@@ -869,7 +888,10 @@ export default function (pi: ExtensionAPI) {
 					onUpdate,
 					mkDetails,
 					params.timeoutMs,
-					{ retryOnTimeout: params.retryOnTimeout },
+					{
+						retryOnTimeout: params.retryOnTimeout,
+						resumeSessionFile: params.resumeSession,
+					},
 				);
 				if (isFailedResult(result)) {
 					return {
