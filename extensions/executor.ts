@@ -164,6 +164,15 @@ export interface SubagentDetails {
 	results: SingleResult[];
 }
 
+/**
+ * Build the CONTEXT: argument injected before Task: on a timeout retry.
+ * Includes a convergence instruction so the retry continues from confirmed
+ * findings instead of re-exploring from scratch.
+ */
+export function buildContextArg(contextPrefix: string): string {
+	return `CONTEXT: ${contextPrefix}\n\nPrioritize convergence: continue directly from the findings above. Do NOT re-search, re-list, or re-read files already identified; only fill the remaining gaps, then report.`;
+}
+
 export type DisplayItem =
 	| { type: "text"; text: string }
 	| { type: "toolCall"; name: string; args: Record<string, unknown> };
@@ -609,7 +618,7 @@ async function runAttempt(
 		if (currentModel) args.push("--model", currentModel);
 		if (agent.tools && agent.tools.length > 0)
 			args.push("--tools", agent.tools.join(","));
-		if (ctx.contextPrefix) args.push(`CONTEXT: ${ctx.contextPrefix}`);
+		if (ctx.contextPrefix) args.push(buildContextArg(ctx.contextPrefix));
 
 		let tmpPromptDir: string | null = null;
 		let tmpPromptPath: string | null = null;

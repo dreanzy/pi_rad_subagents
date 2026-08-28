@@ -187,3 +187,14 @@ describe("retryLoop", () => {
 		expect(result.timedOut).toBe(true);
 	});
 });
+
+import { buildContextArg } from "../extensions/executor.ts";
+
+describe("buildContextArg", () => {
+	it("injects the partial findings with a convergence instruction", () => {
+		const arg = buildContextArg("found X at path/to/x");
+		expect(arg).toContain("CONTEXT: found X at path/to/x");
+		expect(arg).toContain("Prioritize convergence");
+		expect(arg).toContain("Do NOT re-search");
+	});
+});

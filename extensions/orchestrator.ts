@@ -24,7 +24,7 @@ const ORCHESTRATOR_AGENTS_PLACEHOLDER = "__AVAILABLE_AGENTS__";
  */
 const AGENT_DETAILS: Record<string, string> = {
 	explorer:
-		"Fast codebase recon that returns compressed context for handoff. Permissions: read_files only. Stats: 2x faster codebase search than you, half the cost. Delegate when: Need to discover what exists before planning; Parallel searches speed discovery; Need summarized map vs full contents; Broad/uncertain scope.",
+		"Fast codebase recon that returns compressed context for handoff. Permissions: read_files only. Stats: 2x faster codebase search than you, half the cost. Delegate when: Need to discover what exists before planning; Parallel searches speed discovery; Need summarized map vs full contents; Broad/uncertain scope. Don't delegate when: You know the exact path and just need its contents; Single specific lookup; You're about to edit the file — read it yourself.",
 	librarian:
 		"External knowledge and library research, fast web research. Role: Authoritative source for current library docs, API references, examples, bug investigations, and web retrieval. Stats: 2x faster web research than you, half the cost.",
 	oracle:
@@ -79,6 +79,12 @@ Review available agents and lane rules.
 - For trivial conversational answers or tiny mechanical edits, direct execution is allowed when delegation overhead would clearly dominate
 - Record task state and ownership across delegations
 - Reconcile results, resolve conflicts, and gate dependent work
+
+**Delegation sizing (learned from oh-my-opencode-slim):**
+- Delegate narrow, completable chunks, not open-ended missions. A task like \`find X and build the full mapping\` will explore forever; split it: \`locate the file\` → \`read the structure\` → \`map the fields\`, each sized to finish in one budget.
+- Before delegating a read-only lane, ask: do I already know the exact path and just need its contents? If yes, read it yourself — don't burn a subagent.
+- Check the conversation for a prior delegation that already covers the same objective; reuse its output instead of re-delegating an unchanged task.
+- If a lane times out or returns partial findings, re-delegate with a narrowed scope or explicit continuation — never reissue the identical task.
 
 **File Operations Rules:**
 - Prefer dedicated file tools for normal code work: \`grep\`/\`find\` for discovery, \`read\` for contents, and \`edit\`/\`write\` for targeted changes.
