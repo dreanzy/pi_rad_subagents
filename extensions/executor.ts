@@ -488,6 +488,13 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	return { command: "pi", args };
 }
 
+export function isTerminalStopReason(stopReason: string | undefined): boolean {
+	// Only terminal stop reasons mean the answer is complete. toolUse is an
+	// intermediate round (model requested tools), error/aborted are failures,
+	// pending/deferred are not finished. See pi packages/ai StopReason.
+	return stopReason === "stop" || stopReason === "length";
+}
+
 /**
  * Inject rejection contract + append-system-prompt, spawn subagent process,
  * stream JSON events, retry through model priority chain on failure.
@@ -740,7 +747,10 @@ async function runAttempt(
 							if (!currentResult.model && msg.model) currentResult.model = msg.model;
 							if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 							if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
-							sawAssistantEnd = true;
+							// Only a terminal stopReason (stop/length) means the answer is
+							// complete; toolUse is an intermediate round where the model
+							// requested tools, not a finished answer.
+							if (isTerminalStopReason(msg.stopReason)) sawAssistantEnd = true;
 						}
 						currentResult.messages.push(msg);
 						emitUpdate();

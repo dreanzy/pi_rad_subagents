@@ -5,6 +5,7 @@ import {
 	STUCK_IDLE_THRESHOLD_MS,
 	getResultOutput,
 	isFailedResult,
+	isTerminalStopReason,
 } from "../extensions/executor.ts";
 
 function result(partial: Record<string, unknown>) {
@@ -84,6 +85,22 @@ describe("timeout/stuck result formatting", () => {
 		expect(DEFAULT_RETRY_ON_TIMEOUT).toBe(1);
 		expect(MAX_RETRY_ON_TIMEOUT).toBe(3);
 		expect(STUCK_IDLE_THRESHOLD_MS).toBe(120_000);
+	});
+
+	describe("isTerminalStopReason", () => {
+		it("accepts stop and length as terminal", () => {
+			expect(isTerminalStopReason("stop")).toBe(true);
+			expect(isTerminalStopReason("length")).toBe(true);
+		});
+
+		it("rejects intermediate and failure stop reasons", () => {
+			expect(isTerminalStopReason("toolUse")).toBe(false);
+			expect(isTerminalStopReason("error")).toBe(false);
+			expect(isTerminalStopReason("aborted")).toBe(false);
+			expect(isTerminalStopReason("pending")).toBe(false);
+			expect(isTerminalStopReason("deferred")).toBe(false);
+			expect(isTerminalStopReason(undefined)).toBe(false);
+		});
 	});
 });
 
