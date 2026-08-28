@@ -693,6 +693,7 @@ async function runAttempt(
 			let timeoutTimer: NodeJS.Timeout | undefined;
 			let maybeStuck = false;
 			let stuckTimer: NodeJS.Timeout | undefined;
+			let sawAssistantEnd = false;
 			const clearStuckTimer = () => {
 				if (stuckTimer) {
 					clearTimeout(stuckTimer);
@@ -739,6 +740,7 @@ async function runAttempt(
 							if (!currentResult.model && msg.model) currentResult.model = msg.model;
 							if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 							if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
+							sawAssistantEnd = true;
 						}
 						currentResult.messages.push(msg);
 						emitUpdate();
@@ -817,17 +819,23 @@ async function runAttempt(
 			if (timeoutTimer) clearTimeout(timeoutTimer);
 			if (wasAborted) throw new Error("Subagent was aborted");
 
-			// Task timeout: kill already happened; return whatever output arrived
-			// (partial results included) instead of retrying the next model.
+			// Task timeout: kill already happened. If the model had already finished
+			// its answer (an assistant message_end arrived before the deadline), the
+			// run is a success — the kill only interrupted process teardown, not the
+			// answer. Otherwise return the partial result so the caller can retry.
 			if (timedOut) {
-				currentResult.stopReason = "timeout";
-				currentResult.exitCode = 124;
-				currentResult.timedOut = true;
-				if (maybeStuck) currentResult.possiblyStuck = true;
-				currentResult.errorMessage = `Task exceeded ${ctx.timeoutMs}ms timeout`;
-				currentResult.retryable = ctx.priorRetries < MAX_RETRY_ON_TIMEOUT;
-				currentResult.timeoutRetries = ctx.priorRetries;
-				return currentResult;
+				if (!sawAssistantEnd) {
+					currentResult.stopReason = "timeout";
+					currentResult.exitCode = 124;
+					currentResult.timedOut = true;
+					if (maybeStuck) currentResult.possiblyStuck = true;
+					currentResult.errorMessage = `Task exceeded ${ctx.timeoutMs}ms timeout`;
+					currentResult.retryable = ctx.priorRetries < MAX_RETRY_ON_TIMEOUT;
+					currentResult.timeoutRetries = ctx.priorRetries;
+					return currentResult;
+				}
+				// Model finished; treat as success. The kill raced process teardown.
+				currentResult.exitCode = 0;
 			}
 
 			// Parse rejection contract from output
@@ -846,7 +854,7 @@ async function runAttempt(
 			currentResult.retryable = determineRetryable(currentResult);
 
 			if (
-				exitCode === 0 &&
+				currentResult.exitCode === 0 &&
 				currentResult.stopReason !== "error" &&
 				currentResult.stopReason !== "aborted" &&
 				!currentResult.rejected

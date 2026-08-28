@@ -61,6 +61,25 @@ describe("timeout/stuck result formatting", () => {
 		expect(getResultOutput(r)).toBe("done");
 	});
 
+	it("a finished model result (exitCode 0, assistant answer) renders as success", () => {
+		// Shape produced by the timeout-race fix in runAttempt: when the deadline
+		// fired after the assistant's message_end, the result keeps exitCode 0 and
+		// its answer; isFailedResult must not flag it and getResultOutput must
+		// surface the answer without timeout labels.
+		const r = result({
+			exitCode: 0,
+			stopReason: "stop",
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "complete answer" }],
+				},
+			],
+		});
+		expect(isFailedResult(r)).toBe(false);
+		expect(getResultOutput(r)).toBe("complete answer");
+	});
+
 	it("caps retryOnTimeout and exposes constants", () => {
 		expect(DEFAULT_RETRY_ON_TIMEOUT).toBe(1);
 		expect(MAX_RETRY_ON_TIMEOUT).toBe(3);
