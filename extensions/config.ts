@@ -47,9 +47,7 @@ interface AgentOverrideConfig {
 	 */
 	model?: string | string[];
 	tools?: string[];
-	temperature?: number;
 	description?: string;
-	displayName?: string;
 	disabled?: boolean;
 }
 
@@ -72,8 +70,6 @@ export interface RadSubagentsPluginConfig {
 	orchestrator?: {
 		/** Whether the orchestrator auto-delegates tasks. Default: true */
 		enabled?: boolean;
-		/** Default agent to route to when orchestrator is active. Default: "auto" */
-		defaultMode?: "auto" | "single" | "chain";
 	};
 }
 

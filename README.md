@@ -88,7 +88,7 @@ A reference is reported invalid when:
 - its provider has no configured auth, or
 - a live probe fails with a model-level error (e.g. `400 unsupported_model` for models delisted from their endpoint)
 
-Probing sends one minimal completion per statically-valid reference (bounded 15s timeout, concurrency 4, Escape-cancellable progress display). Transient errors (rate limits, network) are treated as inconclusive and do not flag the model. The report is grouped per config file and ends with a summary line; non-TUI sessions get a notify summary instead.
+Probing sends one minimal HTTP request per statically-valid reference (bounded 15s timeout, concurrency 4, Escape-cancellable progress display) straight to the model's endpoint — OpenAI-compatible `chat/completions` (with `/responses` fallback), Anthropic `/v1/messages`, and Google `:generateContent` are covered. Signed transports (Azure, Bedrock, Vertex, Codex) are skipped and treated as valid. Transient errors (rate limits, network) are treated as inconclusive and do not flag the model. The report is grouped per config file and ends with a summary line; non-TUI sessions get a notify summary instead.
 
 ## Agent Fleet
 

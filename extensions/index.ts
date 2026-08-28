@@ -40,10 +40,10 @@ import {
 	getFinalOutput,
 	getResultOutput,
 	isFailedResult,
-	mapWithConcurrencyLimit,
 	runSingleAgent,
 	truncateParallelOutput,
 } from "./executor.ts";
+import { mapWithConcurrencyLimit } from "./concurrency.ts";
 import { registerAgentAutocomplete } from "./autocomplete.ts";
 import { registerModelsCheckCommand } from "./check-models.ts";
 import { findModelByRef, type RegistryModelLike } from "./model-check.ts";

@@ -88,7 +88,7 @@ rad-subagents(chain: [
 - 其 provider 未配置认证，或
 - 实时探测返回模型级错误（如已从 endpoint 下架的模型返回 `400 unsupported_model`）
 
-探测会为每个静态有效的引用发送一次最小补全请求（15s 超时、并发 4、Escape 可取消的进度显示）。瞬时错误（限流、网络）视为不确定，不标记为失效。报告按配置文件分组并以汇总行结尾；非 TUI 会话改为 notify 摘要。
+探测会为每个静态有效的引用发送一次最小 HTTP 请求（15s 超时、并发 4、Escape 可取消的进度显示），直接打到模型端点 — 覆盖 OpenAI 兼容 `chat/completions`（带 `/responses` 回退）、Anthropic `/v1/messages` 和 Google `:generateContent`。签名传输（Azure、Bedrock、Vertex、Codex）跳过并视为有效。瞬时错误（限流、网络）视为不确定，不标记为失效。报告按配置文件分组并以汇总行结尾；非 TUI 会话改为 notify 摘要。
 
 ## Agent 舰队
 

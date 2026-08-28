@@ -70,20 +70,33 @@ export function classifyProbeError(
 }
 
 /**
- * Probe one model reference via an injected probe function that returns the
- * response text or throws. Model-level errors → invalid; auth errors →
- * invalid (flag for attention); transient errors → valid (inconclusive).
+ * Probe one model reference via an injected probe function. The probe may
+ * return the response text (legacy) or a structured { status, message } —
+ * model-level errors → invalid; auth errors → invalid (flag for attention);
+ * transient errors → valid (inconclusive).
  */
+export interface ProbeResult {
+	status: "ok" | "error";
+	message?: string;
+}
+
 export async function probeModelRef(
-	probe: (ref: string) => Promise<string>,
+	probe: (ref: string) => Promise<string | ProbeResult>,
 	ref: string,
 ): Promise<{ ok: boolean; reason?: string }> {
 	let message: string;
 	try {
-		message = await probe(ref);
+		const result = await probe(ref);
+		message =
+			typeof result === "string"
+				? result
+				: result.status === "ok"
+					? "ok"
+					: (result.message ?? "probe error");
 	} catch (err) {
 		message = err instanceof Error ? err.message : String(err);
 	}
+	if (message === "ok") return { ok: true };
 	const kind = classifyProbeError(message);
 	if (kind === "model")
 		return { ok: false, reason: `model unavailable: ${message}` };

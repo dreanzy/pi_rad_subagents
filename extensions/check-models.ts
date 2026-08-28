@@ -9,8 +9,11 @@
  *   - a live probe (bounded, concurrent) fails with a model-level error
  *     (e.g. 400 unsupported_model for delisted models)
  *
- * Runs a bounded model-registry refresh first so newly installed providers
- * are discovered; falls back to the session snapshot.
+ * pi 0.84's ModelRegistry exposes no completion API to extensions, so the
+ * probe sends a minimal HTTP request straight to the model's baseUrl using
+ * getApiKeyAndHeaders() for auth. Covered: OpenAI-compatible chat/completions,
+ * OpenAI responses, Anthropic messages, Google generative-ai. Signed or
+ * provider-specific transports (Azure, Bedrock, Vertex, Codex) are skipped.
  */
 
 import * as path from "node:path";
@@ -25,6 +28,7 @@ import {
 	type Component,
 } from "@earendil-works/pi-tui";
 import { findProjectRadSubagentsConfig, readJSONSafe } from "./config.ts";
+import { mapWithConcurrencyLimit } from "./concurrency.ts";
 import {
 	applyProbeResults,
 	checkModels,
@@ -32,10 +36,10 @@ import {
 	probeModelRef,
 	stripThinkingLevel,
 	type ModelRefEntry,
+	type ProbeResult,
 	type RegistryModelLike,
 } from "./model-check.ts";
 
-const REFRESH_TIMEOUT_MS = 10_000;
 /** Per-probe request timeout. */
 const PROBE_TIMEOUT_MS = 15_000;
 /** Concurrent probe limit. */
@@ -77,54 +81,83 @@ function readConfigFiles(cwd: string): Array<{
 }
 
 /**
- * Refresh the registry with a bounded timeout; swallow failures.
- * Returns true when the refresh completed without being aborted. Provider
- * errors are tolerated — the snapshot may simply be stale, not wrong.
+ * Refresh the registry: pi 0.84's ModelRegistry.refresh() is synchronous and
+ * takes no options — it just reloads models.json from disk. Provider/network
+ * freshness is out of scope; a reload failure still leaves the previous
+ * snapshot usable, so errors are swallowed.
  */
-async function refreshRegistry(ctx: ExtensionCommandContext): Promise<boolean> {
+function refreshRegistry(ctx: ExtensionCommandContext): void {
 	try {
-		const signal = AbortSignal.timeout(REFRESH_TIMEOUT_MS);
-		const result = await Promise.race([
-			ctx.modelRegistry.refresh({ allowNetwork: true, signal }),
-			new Promise<null>((resolve) =>
-				setTimeout(() => resolve(null), REFRESH_TIMEOUT_MS + 1000),
-			),
-		]);
-		return result !== null && !result.aborted;
+		ctx.modelRegistry.refresh();
 	} catch {
-		return false;
+		/* snapshot may simply be stale, not wrong */
 	}
 }
 
 // ── Live model probe ────────────────────────────────────────────────
 
-/** Map a concurrency-limited map over items, preserving order. */
-async function mapWithConcurrencyLimit<T, R>(
-	items: T[],
-	limit: number,
-	fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-	const results = new Array<R>(items.length);
-	let next = 0;
-	const worker = async () => {
-		while (next < items.length) {
-			const i = next++;
-			results[i] = await fn(items[i]!);
-		}
-	};
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+/** One bounded POST; "ok" on 2xx, "endpoint <code>" on 404/405 (try a fallback
+ * endpoint), otherwise the response body or error message. */
+/** Probe outcome for one HTTP attempt. */
+type AttemptResult = {
+	status: "ok" | "endpoint-missing" | "error";
+	message?: string;
+};
+
+/** Narrow an attempt result to the probe protocol (endpoint-missing → error). */
+function toProbeResult(r: AttemptResult): ProbeResult {
+	return r.status === "ok"
+		? { status: "ok" }
+		: { status: "error", message: r.message };
+} /** OpenAI-compatible APIs probed via Bearer + chat/completions. */
+const OPENAI_FAMILY = new Set([
+	"openai-completions",
+	"openai-responses",
+	"mistral-conversations",
+]);
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+	return Object.keys(headers).some(
+		(k) => k.toLowerCase() === name.toLowerCase(),
 	);
-	return results;
+}
+
+async function requestProbe(
+	url: string,
+	body: unknown,
+	headers: Record<string, string>,
+	signal: AbortSignal,
+): Promise<AttemptResult> {
+	try {
+		const res = await fetch(url, {
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+			signal,
+		});
+		if (res.ok) return { status: "ok" };
+		if (res.status === 404 || res.status === 405)
+			return { status: "endpoint-missing", message: `endpoint ${res.status}` };
+		const text = await res.text();
+		return {
+			status: "error",
+			message: text.slice(0, 500) || `http ${res.status}`,
+		};
+	} catch (err) {
+		return {
+			status: "error",
+			message: err instanceof Error ? err.message : String(err),
+		};
+	}
 }
 
 /**
  * Probe a model ref via the registry: resolve it to a Model, then send a
- * minimal completion ("hi", maxTokens 1). Returns the response text on
- * success, or the error message on failure — probeModelRef classifies it.
+ * minimal completion ("hi", maxTokens 1) to its endpoint. Returns a
+ * ProbeResult that probeModelRef classifies.
  */
 function makeProbe(ctx: ExtensionCommandContext) {
-	return async (ref: string): Promise<string> => {
+	return async (ref: string): Promise<ProbeResult> => {
 		const { modelRef } = stripThinkingLevel(ref);
 		const all = ctx.modelRegistry.getAll();
 		const slash = modelRef.indexOf("/");
@@ -133,35 +166,87 @@ function makeProbe(ctx: ExtensionCommandContext) {
 		const model = provider
 			? ctx.modelRegistry.find(provider, id)
 			: all.find((m) => m.id === id);
-		if (!model) return "model not found";
+		if (!model) return { status: "error", message: "model not found" };
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok) return { status: "error", message: auth.error };
+		// Auth resolution may override the endpoint on newer pi (OAuth/env);
+		// 0.84's ResolvedRequestAuth has no baseUrl, so use model.baseUrl.
+		const base = (model.baseUrl ?? "").replace(/\/+$/, "");
+		if (!base) return { status: "error", message: "model baseUrl missing" };
+		const api = model.api as string;
+		const key = auth.apiKey;
 		const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
-		try {
-			const resp = await ctx.modelRegistry.complete(
-				model,
-				{
-					systemPrompt: "",
-					messages: [
-						{
-							role: "user",
-							content: [{ type: "text", text: "hi" }],
-							timestamp: Date.now(),
-						},
-					],
-				},
-				{ signal, maxTokens: 1 },
-			);
-			// pi surfaces provider errors as stopReason "error" with an
-			// errorMessage rather than throwing — check both paths.
-			if (resp.stopReason === "error") {
-				return (
-					resp.errorMessage ?? `provider error (stopReason ${resp.stopReason})`
-				);
-			}
-			if (resp.stopReason === "aborted") return "request aborted";
-			return "ok";
-		} catch (err) {
-			return err instanceof Error ? err.message : String(err);
+		// Spread auth headers first so the JSON content-type wins.
+		const headers: Record<string, string> = {
+			...(auth.headers ?? {}),
+			"content-type": "application/json",
+		};
+		// getApiKeyAndHeaders only injects Authorization when the provider sets
+		// authHeader: true, but the OpenAI-compatible client (and most gateways)
+		// always sends Bearer. Add it unconditionally for the OpenAI family;
+		// other transports set their own key placement below.
+		if (key && !hasHeader(headers, "authorization")) {
+			if (OPENAI_FAMILY.has(api)) headers.Authorization = `Bearer ${key}`;
 		}
+
+		if (api === "anthropic-messages") {
+			if (key && !hasHeader(headers, "x-api-key")) headers["x-api-key"] = key;
+			headers["anthropic-version"] = "2023-06-01";
+			const url = `${base.endsWith("/v1") ? base : `${base}/v1`}/messages`;
+			return toProbeResult(
+				await requestProbe(
+					url,
+					{
+						model: model.id,
+						messages: [{ role: "user", content: "hi" }],
+						max_tokens: 1,
+					},
+					headers,
+					signal,
+				),
+			);
+		}
+		if (api === "google-generative-ai") {
+			if (!key) return { status: "error", message: "no api key" };
+			const url = `${base}:generateContent?key=${encodeURIComponent(key)}`;
+			return toProbeResult(
+				await requestProbe(
+					url,
+					{ contents: [{ parts: [{ text: "hi" }] }] },
+					{ "content-type": "application/json" },
+					signal,
+				),
+			);
+		}
+		// Signed or provider-specific transports cannot be probed with a plain
+		// HTTP request — treat as ok rather than flagging them invalid.
+		if (!OPENAI_FAMILY.has(api)) return { status: "ok" };
+		const chatBody = {
+			model: model.id,
+			messages: [{ role: "user", content: "hi" }],
+			max_tokens: 1,
+		};
+		const r1 = await requestProbe(
+			`${base}/chat/completions`,
+			chatBody,
+			headers,
+			signal,
+		);
+		if (r1.status !== "endpoint-missing") return toProbeResult(r1);
+		// Responses-only endpoints (e.g. OpenAI gpt-5 family): retry on /responses.
+		// Array input is accepted by both OpenAI responses and most gateways.
+		return toProbeResult(
+			await requestProbe(
+				`${base}/responses`,
+				{
+					model: model.id,
+					input: [{ role: "user", content: "hi" }],
+					max_output_tokens: 1,
+				},
+				headers,
+				signal,
+			),
+		);
 	};
 }
 
@@ -267,9 +352,8 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 			};
 
 			// ── Phase 1: refresh + static check (no UI) ──
-			const refreshed = await refreshRegistry(ctx);
+			refreshRegistry(ctx);
 			const result = checkModels(registry, configs);
-			const staleNote = refreshed ? "" : " (registry snapshot, refresh failed)";
 
 			if (ctx.mode === "tui" && ctx.hasUI) {
 				// ── Phase 2: probe with a cancellable loader ──
@@ -300,7 +384,7 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 
 				// ── Phase 3: bordered report ──
 				await ctx.ui.custom<boolean>((tui, theme, _kb, done) => {
-					const title = `rad-subagents model check${staleNote}`;
+					const title = "rad-subagents model check";
 					const body = formatCheckResult(result);
 					const text = `${theme.fg("toolTitle", theme.bold(title))}\n\n${body}\n\n${theme.fg("muted", "(PgUp/PgDn scroll, Enter/Escape to close)")}`;
 					// Editor area ≈ terminal height minus chat/footer/input.
@@ -327,7 +411,7 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 						? "all valid"
 						: `${result.invalid.length} invalid`;
 				ctx.ui.notify(
-					`[rad-subagents] ${summary}${staleNote} (probed ${probedCount}, total ${result.valid.length + result.invalid.length})`,
+					`[rad-subagents] ${summary} (probed ${probedCount}, total ${result.valid.length + result.invalid.length})`,
 					result.invalid.length > 0 ? "warning" : "info",
 				);
 			}
