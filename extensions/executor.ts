@@ -539,6 +539,17 @@ export async function runSingleAgent(
 	if (agent.model) models.push(agent.model);
 	if (agent.modelPriority) models.push(...agent.modelPriority);
 
+	// Per-task session file: kept across timeout retries so the retry resumes
+	// the real conversation (already-read files, tool results) instead of
+	// restarting from scratch. Removed when the task settles.
+	const sessionDir = await fs.promises.mkdtemp(
+		path.join(os.tmpdir(), "rad-session-"),
+	);
+	const sessionFile = path.join(
+		sessionDir,
+		`${agentName.replace(/[^\w.-]+/g, "_")}.jsonl`,
+	);
+
 	// Outer loop: timeout retries (fresh wall-clock budget per attempt).
 	const attempt = async (
 		contextPrefix: string | undefined,
@@ -559,6 +570,7 @@ export async function runSingleAgent(
 					timeoutMs,
 					contextPrefix,
 					priorRetries,
+					sessionFile,
 				},
 				models,
 				agent,
@@ -581,7 +593,18 @@ export async function runSingleAgent(
 		}
 	};
 
-	return retryLoop(attempt, retryOnTimeout, getFinalOutput);
+	let result: SingleResult;
+	try {
+		result = await retryLoop(attempt, retryOnTimeout, getFinalOutput);
+	} finally {
+		// Task settled (success, retries exhausted, or thrown): drop the session
+		// file so it does not accumulate on disk. Best-effort on Windows where a
+		// still-open child may hold the file.
+		await fs.promises
+			.rm(sessionDir, { recursive: true, force: true })
+			.catch(() => {});
+	}
+	return result;
 }
 
 interface RunAttemptContext {
@@ -597,6 +620,7 @@ interface RunAttemptContext {
 	timeoutMs?: number;
 	contextPrefix?: string;
 	priorRetries: number;
+	sessionFile: string;
 }
 
 /**
@@ -614,7 +638,10 @@ async function runAttempt(
 	for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
 		const currentModel = models[modelIdx];
 
-		const args: string[] = ["--mode", "json", "-p", "--no-session"];
+		const args: string[] = ["--mode", "json", "-p", "--session", ctx.sessionFile];
+		// Model fallback reuses the same session file on purpose: a fallback model
+		// continues the same task's conversation (prior reads/tool results intact),
+		// which is preferable to a cold restart on the next model.
 		if (currentModel) args.push("--model", currentModel);
 		if (agent.tools && agent.tools.length > 0)
 			args.push("--tools", agent.tools.join(","));
