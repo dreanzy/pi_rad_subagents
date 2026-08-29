@@ -55,7 +55,7 @@ describe("timeout/stuck result formatting", () => {
 			sessionFile: "/tmp/rad-session-abc/explorer.jsonl",
 		});
 		expect(getResultOutput(r)).toContain(
-			"[session kept for resume: /tmp/rad-session-abc/explorer.jsonl]",
+			'[session kept for resume: "/tmp/rad-session-abc/explorer.jsonl"]',
 		);
 		expect(getResultOutput(r)).toContain("resumeSession");
 	});

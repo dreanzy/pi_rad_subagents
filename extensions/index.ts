@@ -296,7 +296,7 @@ function renderSingleResult(
 				new Text(
 					theme.fg(
 						"warning",
-						`[session kept for resume: ${r.sessionFile} — resume via rad-subagents with resumeSession: "${r.sessionFile}"]`,
+						`[session kept for resume: "${r.sessionFile}" — resume via rad-subagents with resumeSession: (the path above)]`,
 					),
 					0,
 					0,
@@ -372,7 +372,7 @@ function renderSingleResult(
 	} else if (isError && r.errorMessage) {
 		text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
 		if (r.sessionFile)
-			text += `\n${theme.fg("warning", `[session kept for resume: ${r.sessionFile} — resume via rad-subagents with resumeSession: "${r.sessionFile}"]`)}`;
+			text += `\n${theme.fg("warning", `[session kept for resume: "${r.sessionFile}" — resume via rad-subagents with resumeSession: (the path above)]`)}`;
 	} else if (displayItems.length === 0) {
 		text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
 	} else {

@@ -411,7 +411,7 @@ export function getResultOutput(result: SingleResult): string {
 	const resumeLabel =
 		result.sessionFile === undefined
 			? ""
-			: `\n[session kept for resume: ${result.sessionFile}]\n[To resume, call rad-subagents again with the SAME agent and a task like "continue and finish", plus resumeSession: "${result.sessionFile}". The subagent continues from its partial findings instead of restarting.]`;
+			: `\n[session kept for resume: "${result.sessionFile}"]\n[To resume, call rad-subagents again with the SAME agent and a task like "continue and finish", plus resumeSession: (the path above). The subagent continues from its partial findings instead of restarting.]`;
 	if (isFailedResult(result)) {
 		const parts: string[] = [];
 		if (result.errorMessage) parts.push(result.errorMessage);
