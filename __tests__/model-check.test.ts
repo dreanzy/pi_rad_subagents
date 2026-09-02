@@ -237,6 +237,16 @@ describe("probeModelRef", () => {
 		expect(r.reason).toContain("model unavailable");
 	});
 
+	it("flags retired/delisted models (403 permission_error) as invalid", async () => {
+		const r = await probeModelRef(async () => {
+			throw new Error(
+				'403: {"error":{"message":"The free MiniMax M3 and M2.7 models have been retired. Run /model and pick MiniMax M3 or MiniMax M2.7 to keep going.","type":"permission_error","code":"FORBIDDEN"}}',
+			);
+		}, "command-code/minimax/minimax-m3-free");
+		expect(r.ok).toBe(false);
+		expect(r.reason).toContain("model unavailable");
+	});
+
 	it("flags auth errors as invalid", async () => {
 		const r = await probeModelRef(async () => {
 			throw new Error("401 unauthorized: invalid api key");

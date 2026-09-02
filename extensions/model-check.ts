@@ -53,7 +53,7 @@ export interface CheckResult {
 
 /** Model-level errors that mean "this model is gone/broken", not transient. */
 const MODEL_LEVEL_ERROR_RE =
-	/unsupported_model|model_not_found|model not found|no such model|unknown model|does not exist|not supported on this endpoint|not supported/i;
+	/unsupported_model|model_not_found|model not found|no such model|unknown model|does not exist|not supported on this endpoint|not supported|retired|permission_error|forbidden/i;
 
 /**
  * Classify a probe error message: "model" (delisted/broken model),
