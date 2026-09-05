@@ -267,6 +267,15 @@ function resultIcon(r: SingleResult, theme: any): string {
 	return isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
 
+/**
+ * Dim model tag shown right after the agent name in step/result headers, so
+ * the active model is visible at a glance without scanning the usage line.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
+function agentModelTag(r: { model?: string }, theme: any): string {
+	return r.model ? ` ${theme.fg("dim", r.model)}` : "";
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderSingleResult(
 	r: SingleResult,
@@ -283,7 +292,7 @@ function renderSingleResult(
 
 	if (expanded) {
 		const container = new Container();
-		let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+		let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}${agentModelTag(r, theme)}`;
 		if (isError && terminalError)
 			header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 		container.addChild(new Text(header, 0, 0));
@@ -355,7 +364,7 @@ function renderSingleResult(
 				),
 			);
 		}
-		const usageStr = formatUsageStats(r.usage, r.model);
+		const usageStr = formatUsageStats(r.usage);
 		if (usageStr) {
 			container.addChild(new Spacer(1));
 			container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
@@ -364,7 +373,7 @@ function renderSingleResult(
 	}
 
 	// Collapsed
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+	let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}${agentModelTag(r, theme)}`;
 	if (isError && terminalError)
 		text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	if (r.rejected) {
@@ -383,7 +392,7 @@ function renderSingleResult(
 	if (isError && r.retryable !== undefined) {
 		text += `\n${r.retryable ? theme.fg("warning", "[Retryable: yes]") : theme.fg("error", "[Retryable: no]")}`;
 	}
-	const usageStr = formatUsageStats(r.usage, r.model);
+	const usageStr = formatUsageStats(r.usage);
 	if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
 	return new Text(text, 0, 0);
 }
@@ -428,7 +437,7 @@ function renderSingleItemBody(
 		}
 	}
 
-	const usageStr = formatUsageStats(r.usage, r.model);
+	const usageStr = formatUsageStats(r.usage);
 	if (usageStr) body.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
 
 	return body;
@@ -448,7 +457,7 @@ function renderExpandedStep(
 	const step = new Container();
 	step.addChild(
 		new Text(
-			`${theme.fg("muted", separator) + theme.fg("accent", r.agent)} ${resultIcon(r, theme)}`,
+			`${theme.fg("muted", separator) + theme.fg("accent", r.agent)}${agentModelTag(r, theme)} ${resultIcon(r, theme)}`,
 			0,
 			0,
 		),
@@ -470,7 +479,7 @@ function renderStepLine(
 	separator: string,
 ): string {
 	const displayItems = getDisplayItems(r.messages);
-	let text = `\n\n${theme.fg("muted", separator)}${theme.fg("accent", r.agent)} ${resultIcon(r, theme)}`;
+	let text = `\n\n${theme.fg("muted", separator)}${theme.fg("accent", r.agent)}${agentModelTag(r, theme)} ${resultIcon(r, theme)}`;
 	if (r.rejected) {
 		text += `\n${theme.fg("warning", `[Rejected] ${r.rejected.reason}`)}`;
 	} else if (displayItems.length === 0) {
@@ -478,6 +487,8 @@ function renderStepLine(
 	} else {
 		text += `\n${renderDisplayItems(displayItems, theme, 5)}`;
 	}
+	const usageStr = formatUsageStats(r.usage);
+	if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
 	return text;
 }
 
