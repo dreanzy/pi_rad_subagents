@@ -45,8 +45,18 @@ import {
 } from "./executor.ts";
 import { mapWithConcurrencyLimit } from "./concurrency.ts";
 import { registerAgentAutocomplete } from "./autocomplete.ts";
-import { registerModelsCheckCommand } from "./check-models.ts";
-import { findModelByRef, type RegistryModelLike } from "./model-check.ts";
+import {
+	collectConfigFilesForCheck,
+	formatInvalidSummary,
+	registerModelsCheckCommand,
+	registryAdapter,
+	refreshRegistry,
+} from "./check-models.ts";
+import {
+	checkModels,
+	findModelByRef,
+	type RegistryModelLike,
+} from "./model-check.ts";
 import { registerOrchestrator } from "./orchestrator.ts";
 
 const COLLAPSED_ITEM_COUNT = 10;
@@ -1068,6 +1078,35 @@ export default function (pi: ExtensionAPI) {
 			return new Text(text, 0, 0);
 		},
 	);
+
+	// ── Startup model check (offline) ──
+	// On pi startup, statically validate the model references in the project
+	// and global rad-subagents.json (unknown model / unauthenticated
+	// provider) and warn via notify. Offline only — no live probe; details
+	// stay available via /rad-models-check. Configurable via
+	// startupModelCheck: false in rad-subagents.json.
+	pi.on("session_start", async (event, ctx) => {
+		if (event.reason !== "startup") return;
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
+		if (loadConfig(ctx.cwd).startupModelCheck === false) return;
+
+		const configs = collectConfigFilesForCheck(ctx.cwd);
+		if (configs.length === 0) return; // no config to check
+
+		// Reload the registry snapshot before validating (same as
+		// /rad-models-check) so a model added since pi started is not
+		// reported as unknown.
+		refreshRegistry(ctx.modelRegistry);
+		const summary = formatInvalidSummary(
+			checkModels(registryAdapter(ctx.modelRegistry), configs).invalid,
+		);
+		if (summary) {
+			ctx.ui.notify(
+				`[rad-subagents] model check: ${summary} — run /rad-models-check for details`,
+				"warning",
+			);
+		}
+	});
 
 	// Register agent @-mention autocomplete
 	registerAgentAutocomplete(pi);

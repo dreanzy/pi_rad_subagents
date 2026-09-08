@@ -8,8 +8,10 @@ import {
 	probeModelRef,
 	stripThinkingLevel,
 	validateModelRef,
+	type CheckResult,
 	type RegistryModelLike,
 } from "../extensions/model-check.ts";
+import { formatInvalidSummary } from "../extensions/check-models.ts";
 
 const REGISTRY: RegistryModelLike[] = [
 	{ id: "deepseek-v4-flash", provider: "deepseek" },
@@ -223,6 +225,43 @@ describe("formatCheckResult", () => {
 		expect(text).toContain('provider "opencode" not authenticated');
 		expect(text).toContain("✗ project → oracle [fallback]: deepseek/nope");
 		expect(text).toContain("Summary: 2 references, 0 valid, 2 invalid.");
+	});
+});
+
+describe("formatInvalidSummary", () => {
+	it("returns undefined when nothing is invalid", () => {
+		expect(formatInvalidSummary([])).toBeUndefined();
+	});
+
+	it("lists invalid refs with source, agent and reason", () => {
+		const summary = formatInvalidSummary([
+			{
+				filePath: "/g.json",
+				fileLabel: "global",
+				agent: "explorer",
+				kind: "primary",
+				ref: "opencode/some-model",
+				reason: 'provider "opencode" not authenticated',
+			},
+		]);
+		expect(summary).toBe(
+			'1 invalid:\nglobal→explorer [primary] (provider "opencode" not authenticated)',
+		);
+	});
+
+	it("caps the preview at three entries and notes the rest", () => {
+		const mk = (agent: string): CheckResult["invalid"][number] => ({
+			filePath: "/p.json",
+			fileLabel: "project",
+			agent,
+			kind: "primary",
+			ref: "x/y",
+			reason: "nope",
+		});
+		const summary = formatInvalidSummary([mk("a"), mk("b"), mk("c"), mk("d")]);
+		expect(summary).toBe(
+			"4 invalid:\nproject→a [primary] (nope)\nproject→b [primary] (nope)\nproject→c [primary] (nope)\n... +1 more",
+		);
 	});
 });
 

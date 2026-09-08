@@ -63,8 +63,16 @@ export interface RadSubagentsPluginConfig {
 	 */
 	agentAliases?: Record<string, string>;
 
-	/** Default model to use for agents that don’t have one specified. */
+	/** Default model to use for agents that don't have one specified. */
 	defaultModel?: string;
+
+	/**
+	 * Run the offline model check on pi startup and warn when a referenced
+	 * model is unknown or its provider is not authenticated. Default: true.
+	 * Set to false to silence the startup warning (details stay available
+	 * via /rad-models-check).
+	 */
+	startupModelCheck?: boolean;
 
 	/** Orchestrator configuration */
 	orchestrator?: {
@@ -150,10 +158,17 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		...projectConfig.orchestrator,
 	};
 
+	// startupModelCheck: boolean union — a false in either file must survive
+	// the object spread (the spread only keeps the last value, so a project
+	// config without the key would otherwise re-enable a global false).
+	const mergedStartupModelCheck =
+		projectConfig.startupModelCheck ?? globalConfig.startupModelCheck;
+
 	const merged: RadSubagentsPluginConfig = {
 		// top-level: global as base, project overrides
 		...globalConfig,
 		...projectConfig,
+		startupModelCheck: mergedStartupModelCheck,
 		// re-apply merged sub-objects
 		agents: Object.keys(mergedAgents).length > 0 ? mergedAgents : undefined,
 		agentAliases:

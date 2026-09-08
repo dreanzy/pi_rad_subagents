@@ -35,6 +35,7 @@ import {
 	formatCheckResult,
 	probeModelRef,
 	stripThinkingLevel,
+	type CheckResult,
 	type ModelRefEntry,
 	type ProbeResult,
 	type RegistryModelLike,
@@ -45,21 +46,59 @@ const PROBE_TIMEOUT_MS = 15_000;
 /** Concurrent probe limit. */
 const PROBE_CONCURRENCY = 4;
 
+/** Registry subset the model checks need (keeps callers mockable). */
+export type CheckRegistry = {
+	getAll(): RegistryModelLike[];
+	getProviderAuthStatus(provider: string):
+		| {
+				configured: boolean;
+				source?: string;
+				label?: string;
+		  }
+		| undefined;
+};
+
+/** Wrap a pi ModelRegistry (ExtensionContext/CommandContext) as CheckRegistry. */
+export function registryAdapter(registry: {
+	getAll(): unknown[];
+	getProviderAuthStatus(provider: string):
+		| {
+				configured: boolean;
+				source?: string;
+				label?: string;
+		  }
+		| undefined;
+}): CheckRegistry {
+	return {
+		getAll: () => registry.getAll() as RegistryModelLike[],
+		getProviderAuthStatus: (provider) => registry.getProviderAuthStatus(provider),
+	};
+}
+
 /**
- * Read the project + global rad-subagents.json files. Returns entries for
- * files that exist. readJSONSafe tolerates missing/parse errors.
+ * Reload the model registry snapshot. refresh() is async and just reloads
+ * models.json from disk; a reload failure still leaves the previous snapshot
+ * usable, so errors are swallowed.
  */
-function readConfigFiles(cwd: string): Array<{
+export function refreshRegistry(modelRegistry: {
+	refresh(): Promise<unknown>;
+}): void {
+	modelRegistry.refresh().catch(() => {
+		/* snapshot may simply be stale, not wrong */
+	});
+}
+
+/**
+ * Collect config entries for a model check: project then global file.
+ * Returns entries only for files that exist; readJSONSafe tolerates
+ * missing/parse errors.
+ */
+export function collectConfigFilesForCheck(cwd: string): Array<{
 	label: string;
 	path: string;
 	config: Record<string, unknown>;
 }> {
-	const result: Array<{
-		label: string;
-		path: string;
-		config: Record<string, unknown>;
-	}> = [];
-
+	const result = [];
 	const projectPath = findProjectRadSubagentsConfig(cwd);
 	if (projectPath) {
 		result.push({
@@ -68,7 +107,6 @@ function readConfigFiles(cwd: string): Array<{
 			config: readJSONSafe(projectPath) as Record<string, unknown>,
 		});
 	}
-
 	const globalPath = path.join(getAgentDir(), "rad-subagents.json");
 	if (globalPath !== projectPath) {
 		result.push({
@@ -81,17 +119,21 @@ function readConfigFiles(cwd: string): Array<{
 }
 
 /**
- * Refresh the registry: pi 0.84's ModelRegistry.refresh() is synchronous and
- * takes no options — it just reloads models.json from disk. Provider/network
- * freshness is out of scope; a reload failure still leaves the previous
- * snapshot usable, so errors are swallowed.
+ * Multi-line summary of invalid model references for a notify, one line per
+ * reference, e.g.
+ * "2 invalid:\nproject→explorer [primary] (model not found: \"x\")\nglobal→(default)".
+ * Returns undefined when nothing is invalid.
  */
-function refreshRegistry(ctx: ExtensionCommandContext): void {
-	try {
-		ctx.modelRegistry.refresh();
-	} catch {
-		/* snapshot may simply be stale, not wrong */
-	}
+export function formatInvalidSummary(
+	invalid: CheckResult["invalid"],
+): string | undefined {
+	if (invalid.length === 0) return undefined;
+	const maxShow = Math.min(invalid.length, 3);
+	const lines = invalid
+		.slice(0, maxShow)
+		.map((x) => `${x.fileLabel}→${x.agent} [${x.kind}] (${x.reason})`);
+	if (invalid.length > 3) lines.push(`... +${invalid.length - 3} more`);
+	return `${invalid.length} invalid:\n${lines.join("\n")}`;
 }
 
 // ── Live model probe ────────────────────────────────────────────────
@@ -336,7 +378,7 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 		description:
 			"Check subagent models in rad-subagents.json (project + global) against the model registry. Usage: /rad-models-check",
 		handler: async (_args, ctx) => {
-			const configs = readConfigFiles(ctx.cwd);
+			const configs = collectConfigFilesForCheck(ctx.cwd);
 			if (configs.length === 0) {
 				ctx.ui.notify(
 					"No rad-subagents.json found (project or global).",
@@ -345,14 +387,10 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
-			const registry = {
-				getAll: () => ctx.modelRegistry.getAll() as RegistryModelLike[],
-				getProviderAuthStatus: (provider: string) =>
-					ctx.modelRegistry.getProviderAuthStatus(provider),
-			};
+			const registry = registryAdapter(ctx.modelRegistry);
 
 			// ── Phase 1: refresh + static check (no UI) ──
-			refreshRegistry(ctx);
+			refreshRegistry(ctx.modelRegistry);
 			const result = checkModels(registry, configs);
 
 			if (ctx.mode === "tui" && ctx.hasUI) {

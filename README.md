@@ -90,6 +90,12 @@ A reference is reported invalid when:
 
 Probing sends one minimal HTTP request per statically-valid reference (bounded 15s timeout, concurrency 4, Escape-cancellable progress display) straight to the model's endpoint — OpenAI-compatible `chat/completions` (with `/responses` fallback), Anthropic `/v1/messages`, and Google `:generateContent` are covered. Signed transports (Azure, Bedrock, Vertex, Codex) are skipped and treated as valid. Transient errors (rate limits, network) are treated as inconclusive and do not flag the model. The report is grouped per config file and ends with a summary line; non-TUI sessions get a notify summary instead.
 
+### Startup model check
+
+On every pi startup (TUI sessions), the plugin runs an **offline** version of the same static validation — model unknown in the registry, or provider without configured auth — against both `rad-subagents.json` files. When something is invalid, a one-line warning is shown via `ui.notify` (e.g. `2 invalid: project→explorer (model not found: ...), ...`), pointing at `/rad-models-check` for the full report.
+
+No live probing happens at startup, and nothing is shown when all references are valid. Disable the startup warning with `startupModelCheck: false` in either config file (details stay available via `/rad-models-check`).
+
 ## Agent Fleet
 
 | Agent | Role | Tools |
@@ -160,6 +166,7 @@ Example `.pi/rad-subagents.json`:
 | `agents.<name>.description` | string | Override agent description shown to the LLM |
 | `agents.<name>.disabled` | boolean | Disable an agent entirely |
 | `agentAliases` | object | Map unknown agent names to real ones (e.g. `@navigator` → `explorer`). Built-in aliases already cover `general-purpose`→`oracle`, `scout`→`explorer`, `worker`→`fixer`, `researcher`→`librarian`, `reviewer`→`oracle`; user entries override built-ins on name collision |
+| `startupModelCheck` | boolean | Run the offline model check and warn on pi startup. Default: `true`. Set `false` to silence the startup warning |
 | `orchestrator.enabled` | boolean | Orchestrator mode on/off. Default: `true` |
 
 ## Development

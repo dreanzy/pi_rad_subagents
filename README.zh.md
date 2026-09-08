@@ -90,6 +90,12 @@ rad-subagents(chain: [
 
 探测会为每个静态有效的引用发送一次最小 HTTP 请求（15s 超时、并发 4、Escape 可取消的进度显示），直接打到模型端点 — 覆盖 OpenAI 兼容 `chat/completions`（带 `/responses` 回退）、Anthropic `/v1/messages` 和 Google `:generateContent`。签名传输（Azure、Bedrock、Vertex、Codex）跳过并视为有效。瞬时错误（限流、网络）视为不确定，不标记为失效。报告按配置文件分组并以汇总行结尾；非 TUI 会话改为 notify 摘要。
 
+### 启动时模型检查
+
+每次 pi 启动（TUI 会话）时，插件会对两份 `rad-subagents.json` 执行同一静态校验的**离线**版本 — 模型在注册表中不存在，或 provider 未配置认证。存在异常时通过 `ui.notify` 显示一行警告（如 `2 invalid: project→explorer (model not found: ...), ...`），并指向 `/rad-models-check` 查看完整报告。
+
+启动时不发送任何实时探测，全部引用有效时不提示任何内容。可在任一配置文件中设 `startupModelCheck: false` 关闭启动警告（详情仍可通过 `/rad-models-check` 查看）。
+
 ## Agent 舰队
 
 | Agent | 角色 | 工具 |
@@ -160,6 +166,7 @@ JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别
 | `agents.<name>.description` | string | 覆盖展示给 LLM 的 agent 描述 |
 | `agents.<name>.disabled` | boolean | 完全禁用某个 agent |
 | `agentAliases` | object | 将未知 agent 名映射到真实 agent（如 `@navigator` → `explorer`）。内置别名已覆盖 `general-purpose`→`oracle`、`scout`→`explorer`、`worker`→`fixer`、`researcher`→`librarian`、`reviewer`→`oracle`；用户条目在同名时覆盖内置 |
+| `startupModelCheck` | boolean | 是否在 pi 启动时运行离线模型检查并警告。默认 `true`。设 `false` 关闭启动警告 |
 | `orchestrator.enabled` | boolean | Orchestrator 模式开关。默认 `true` |
 
 ## 开发
