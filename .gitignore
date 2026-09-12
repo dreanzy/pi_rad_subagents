@@ -1,21 +1,14 @@
-node_modules
+# AI Agent
+AGENTS.md
+CONTEXT.md
+.agents/
+.pi/
 
 # CodeGraph
 .codegraph/
 
-# Log
-npm-debug.log*
+# Graphify
+graphify-out
 
-# macOS
-.DS_Store
-
-# TypeScript
-*.tsbuildinfo
-
-# Agent
-AGENTS.md
-CONTEXT.md
-.pi/
-
-# Runtime state
-**/.rad-subagents-state.json
+# NPM
+node_modules/
