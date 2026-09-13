@@ -3,6 +3,7 @@ import {
 	DEFAULT_RETRY_ON_TIMEOUT,
 	MAX_RETRY_ON_TIMEOUT,
 	STUCK_IDLE_THRESHOLD_MS,
+	determineRetryable,
 	getResultOutput,
 	isFailedResult,
 	isTerminalStopReason,
@@ -239,6 +240,50 @@ describe("retryLoop", () => {
 });
 
 import { buildContextArg } from "../extensions/executor.ts";
+
+describe("determineRetryable", () => {
+	const failed = (errMsg: string) =>
+		result({ exitCode: 1, stopReason: "error", errorMessage: errMsg });
+
+	it("treats quota, auth and gateway failures as retryable", () => {
+		expect(determineRetryable(failed("429 Too Many Requests"))).toBe(true);
+		expect(
+			determineRetryable(failed('{"code":"insufficient_quota"}')),
+		).toBe(true);
+		expect(
+			determineRetryable(failed("monthly quota exhausted")),
+		).toBe(true);
+		expect(
+			determineRetryable(failed("503 auth_unavailable: no auth available")),
+		).toBe(true);
+		expect(determineRetryable(failed("403 Forbidden"))).toBe(true);
+	});
+
+	it("treats content-policy rejections as retryable (next model may differ)", () => {
+		expect(determineRetryable(failed('{"code":"cyber_policy"}'))).toBe(true);
+		expect(
+			determineRetryable(
+				failed("This content was flagged for possible cybersecurity risk."),
+			),
+		).toBe(true);
+	});
+
+	it("keeps generic provider 4xx wording a hard error", () => {
+		expect(
+			determineRetryable(failed("upstream request failed: 400 bad request")),
+		).toBe(false);
+		expect(determineRetryable(failed("provider returned error"))).toBe(false);
+		expect(determineRetryable(failed("invalid tool schema"))).toBe(false);
+	});
+
+	it("does not retry a rejection or an abort, and reports success as undefined", () => {
+		expect(
+			determineRetryable(result({ rejected: { reason: "out of lane" } })),
+		).toBe(false);
+		expect(determineRetryable(result({ stopReason: "aborted" }))).toBe(false);
+		expect(determineRetryable(result({}))).toBeUndefined();
+	});
+});
 
 describe("buildContextArg", () => {
 	it("injects the partial findings with a convergence instruction", () => {

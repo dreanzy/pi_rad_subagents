@@ -354,9 +354,34 @@ function parseRejection(output: string): {
 }
 
 /**
+ * Provider-side failures where a different model in the chain may succeed even
+ * though the current one cannot. Pattern set ported from oh-my-opencode-slim's
+ * foreground-fallback hook (v2.2.x).
+ */
+const TRANSIENT_ERROR_PATTERNS =
+	/rate.?limit|too many|\b429\b|quota.?exceeded|\bquota\b.*\bexhausted|quota.?threshold|insufficient.?(quota|balance)|ExceededBudget|over.?budget|usage.?exceeded|usage limit|overloaded|resource.?exhausted|high concurrency|reduce concurrency|timeout|internal.?server.?error|5\d{2}|unavailable|no auth available|auth_unavailable|unsupported model|unknown model|model not available/i;
+
+/**
+ * The provider rejected this request (dead credential, gateway block). Match
+ * the status code or explicit wording only: generic "upstream request failed"
+ * / "provider returned error" wraps any provider 4xx, including genuine 400s
+ * the next model would reproduce, so those stay hard errors.
+ */
+const PROVIDER_REJECTED_PATTERNS = /\b(401|403)\b|forbidden|blocked by gateway/i;
+
+/**
+ * Content-policy moderation is deterministic per provider, so the next model
+ * in the chain is worth trying. Match the structured codes and the exact
+ * provider wording only — generic "flagged"/"policy" words would false-positive
+ * on ordinary error text.
+ */
+const CONTENT_POLICY_PATTERNS =
+	/\bcyber_policy\b|\bcontent_policy_violation\b|flagged for possible cybersecurity risk|rejected as a result of our safety system/i;
+
+/**
  * Determine whether a failed result is safe to retry.
  */
-function determineRetryable(result: SingleResult): boolean | undefined {
+export function determineRetryable(result: SingleResult): boolean | undefined {
 	if (result.rejected) return false; // agent explicitly declined
 	if (result.stopReason === "aborted") return false;
 	if (result.stopReason === "timeout") return false; // task-level timeout, not a model failure
@@ -367,13 +392,11 @@ function determineRetryable(result: SingleResult): boolean | undefined {
 			" " +
 			(result.stderr || "")
 		).toLowerCase();
-		if (
-			/rate.limit|timeout|internal.?server.?error|5\d{2}|unavailable|overloaded|too many|model not available|unsupported model|unknown model/i.test(
-				errMsg,
-			)
-		)
-			return true; // transient → retryable
-		return false; // permanent error
+		return (
+			TRANSIENT_ERROR_PATTERNS.test(errMsg) ||
+			PROVIDER_REJECTED_PATTERNS.test(errMsg) ||
+			CONTENT_POLICY_PATTERNS.test(errMsg)
+		);
 	}
 	return undefined;
 }

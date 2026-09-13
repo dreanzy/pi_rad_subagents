@@ -50,7 +50,6 @@ import {
 	formatInvalidSummary,
 	registerModelsCheckCommand,
 	registryAdapter,
-	refreshRegistry,
 } from "./check-models.ts";
 import {
 	checkModels,
@@ -1096,7 +1095,7 @@ export default function (pi: ExtensionAPI) {
 		// Reload the registry snapshot before validating (same as
 		// /rad-models-check) so a model added since pi started is not
 		// reported as unknown.
-		refreshRegistry(ctx.modelRegistry);
+		ctx.modelRegistry.refresh();
 		const summary = formatInvalidSummary(
 			checkModels(registryAdapter(ctx.modelRegistry), configs).invalid,
 		);

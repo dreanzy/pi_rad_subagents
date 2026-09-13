@@ -76,17 +76,10 @@ export function registryAdapter(registry: {
 }
 
 /**
- * Reload the model registry snapshot. refresh() is async and just reloads
- * models.json from disk; a reload failure still leaves the previous snapshot
- * usable, so errors are swallowed.
+ * Reload the model registry snapshot so a model added since pi started is not
+ * reported as unknown. refresh() is synchronous and reads models.json from
+ * disk; a reload failure still leaves the previous snapshot usable.
  */
-export function refreshRegistry(modelRegistry: {
-	refresh(): Promise<unknown>;
-}): void {
-	modelRegistry.refresh().catch(() => {
-		/* snapshot may simply be stale, not wrong */
-	});
-}
 
 /**
  * Collect config entries for a model check: project then global file.
@@ -390,7 +383,8 @@ export function registerModelsCheckCommand(pi: ExtensionAPI): void {
 			const registry = registryAdapter(ctx.modelRegistry);
 
 			// ── Phase 1: refresh + static check (no UI) ──
-			refreshRegistry(ctx.modelRegistry);
+			// Refresh so a model added since pi started is not reported as unknown.
+			ctx.modelRegistry.refresh();
 			const result = checkModels(registry, configs);
 
 			if (ctx.mode === "tui" && ctx.hasUI) {
