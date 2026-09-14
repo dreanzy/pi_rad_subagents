@@ -17,7 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -219,7 +219,7 @@ const makeDetails =
 
 function renderDisplayItems(
 	items: DisplayItem[],
-	theme: { fg: (color: any, text: string) => string },
+	theme: Theme,
 	limit?: number,
 ): string {
 	const toShow = limit ? items.slice(-limit) : items;
@@ -272,7 +272,7 @@ function aggregateUsage(results: SingleResult[]): {
  * Status icon for a single agent result: ⏳ running, ✓ success, ✗ failed.
  */
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
-function resultIcon(r: SingleResult, theme: any): string {
+function resultIcon(r: SingleResult, theme: Theme): string {
 	if (r.exitCode === -1) return theme.fg("warning", "⏳");
 	return isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
 }
@@ -282,14 +282,14 @@ function resultIcon(r: SingleResult, theme: any): string {
  * the active model is visible at a glance without scanning the usage line.
  */
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
-function agentModelTag(r: { model?: string }, theme: any): string {
+function agentModelTag(r: { model?: string }, theme: Theme): string {
 	return r.model ? ` ${theme.fg("dim", r.model)}` : "";
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderSingleResult(
 	r: SingleResult,
-	theme: any,
+	theme: Theme,
 	expanded: boolean,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {
@@ -413,7 +413,7 @@ function renderSingleResult(
  */
 function renderSingleItemBody(
 	r: SingleResult,
-	theme: any,
+	theme: Theme,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ): Container {
 	const body = new Container();
@@ -460,7 +460,7 @@ function renderSingleItemBody(
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderExpandedStep(
 	r: SingleResult,
-	theme: any,
+	theme: Theme,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 	separator: string,
 ): Container {
@@ -485,7 +485,7 @@ function renderExpandedStep(
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderStepLine(
 	r: SingleResult,
-	theme: any,
+	theme: Theme,
 	separator: string,
 ): string {
 	const displayItems = getDisplayItems(r.messages);
@@ -505,7 +505,7 @@ function renderStepLine(
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderChainResults(
 	results: SingleResult[],
-	theme: any,
+	theme: Theme,
 	expanded: boolean,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {
@@ -564,7 +564,7 @@ function renderChainResults(
 // biome-ignore lint/suspicious/noExplicitAny: pi TUI theme type
 function renderParallelResults(
 	results: SingleResult[],
-	theme: any,
+	theme: Theme,
 	expanded: boolean,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ) {

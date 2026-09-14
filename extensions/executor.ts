@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, AgentScope } from "./agents.ts";
 import { loadConfig } from "./config.ts";
 
@@ -237,7 +238,7 @@ export function formatUsageStats(
 export function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
-	themeFg: (color: any, text: string) => string,
+	themeFg: Theme["fg"],
 ): string {
 	const shortenPath = (p: string) => {
 		const home = os.homedir();
