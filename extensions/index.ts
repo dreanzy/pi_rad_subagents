@@ -57,6 +57,7 @@ import {
 	type RegistryModelLike,
 } from "./model-check.ts";
 import { registerOrchestrator } from "./orchestrator.ts";
+import { registerPathRescue } from "./path-rescue.ts";
 
 const COLLAPSED_ITEM_COUNT = 10;
 
@@ -1115,4 +1116,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Register orchestrator mode (optional)
 	registerOrchestrator(pi);
+
+	// Rescue guessed absolute paths with dropped directory segments
+	registerPathRescue(pi);
 }
