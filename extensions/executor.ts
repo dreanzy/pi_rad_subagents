@@ -28,7 +28,7 @@ export const MAX_CONCURRENCY = 4;
 export const STUCK_IDLE_THRESHOLD_MS = 120_000;
 
 /** Sessions kept for resume are swept after this age. */
-export const SESSION_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_STALE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Default number of retries after a task-level timeout (0 disables). */
 export const DEFAULT_RETRY_ON_TIMEOUT = 1;

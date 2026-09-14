@@ -15,7 +15,7 @@
 // Mirrors pi's internal VALID_THINKING_LEVELS (cli/args.ts, not exported from
 // the package entry). Kept in sync manually; levels: off/minimal/low/medium/
 // high/xhigh/max.
-export const VALID_THINKING_LEVELS = [
+const VALID_THINKING_LEVELS = [
 	"off",
 	"minimal",
 	"low",
@@ -60,7 +60,7 @@ const MODEL_LEVEL_ERROR_RE =
  * "auth" (credential problem), or "transient" (rate limit, network, 5xx).
  * Transient errors are inconclusive and must not flag the model invalid.
  */
-export function classifyProbeError(
+function classifyProbeError(
 	message: string,
 ): "model" | "auth" | "transient" {
 	if (MODEL_LEVEL_ERROR_RE.test(message)) return "model";
