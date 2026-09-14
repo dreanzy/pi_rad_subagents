@@ -491,17 +491,23 @@ export function getDisplayItems(messages: Message[]): DisplayItem[] {
  *
  * Activity is judged by the newest file mtime inside the dir, not the dir
  * mtime — pi writes only the jsonl inside, so a long-running session would
- * otherwise look stale and get deleted mid-flight.
+ * otherwise look stale and get deleted mid-flight. `exemptDir` is skipped
+ * outright: it belongs to the run that triggered this sweep.
  */
-async function cleanupStaleSessions(maxAgeMs: number): Promise<void> {
+async function cleanupStaleSessions(
+	maxAgeMs: number,
+	exemptDir?: string,
+): Promise<void> {
 	const tmpRoot = os.tmpdir();
 	const entries = await fs.promises
 		.readdir(tmpRoot, { withFileTypes: true })
 		.catch(() => []);
+	const exempt = exemptDir ? path.resolve(exemptDir) : undefined;
 	const now = Date.now();
 	for (const e of entries) {
 		if (!e.isDirectory() || !e.name.startsWith("rad-session-")) continue;
 		const dir = path.join(tmpRoot, e.name);
+		if (exempt !== undefined && path.resolve(dir) === exempt) continue;
 		try {
 			const files = await fs.promises.readdir(dir);
 			let newest = 0;
@@ -640,8 +646,11 @@ export async function runSingleAgent(
 		path.join(sessionDir, `${agentName.replace(/[^\w.-]+/g, "_")}.jsonl`);
 	// Opportunistic TTL: stale sessions (older than a day) from tasks that
 	// timed out and were never resumed accumulate; sweep them on each spawn.
-	// Skip when resuming — the file is in active use.
-	if (!resumeFile) cleanupStaleSessions(SESSION_STALE_TTL_MS).catch(() => {});
+	// Never skip the sweep when resuming: the active dir is excluded by the
+	// age check, and resuming-only callers are exactly the ones that never
+	// swept. The task's own session dir is exempt so it cannot be deleted
+	// mid-flight if its mtime lags behind the sweep.
+	cleanupStaleSessions(SESSION_STALE_TTL_MS, sessionDir).catch(() => {});
 
 	// Outer loop: timeout retries (fresh wall-clock budget per attempt).
 	const attempt = async (
