@@ -1,14 +1,14 @@
 # AI Agent
 AGENTS.md
 CONTEXT.md
-.agents/
+/.agents/
 /.pi/
 
 # CodeGraph
-.codegraph/
+/.codegraph/
 
 # Graphify
-graphify-out
+/graphify-out/
 
 # NPM
 node_modules/
