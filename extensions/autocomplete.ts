@@ -31,7 +31,7 @@ function createAgentAutocompleteProvider(
 	current: AutocompleteProvider,
 	cwd: string,
 ): AutocompleteProvider {
-	// Hide alias entries (expanded from agentAliases) from the @ list —
+	// Hide alias entries (expanded from BUILTIN_ALIASES) from the @ list —
 	// they still work when typed explicitly, but shouldn't clutter completion.
 	const { agents } = discoverAgents(cwd, "both");
 	const realAgents = agents.filter((a) => !a.aliasOf);

@@ -106,14 +106,14 @@ rad-subagents(chain: [
 | `oracle` | 架构决策 + 代码审查 | read, grep, find, ls, bash |
 | `designer` | UI/UX 设计与实现 | read, grep, find, ls, bash, write, edit |
 | `fixer` | 有界实现专家 | read, grep, find, ls, bash, write, edit |
-| `general-purpose` | 开敞型搜索、分析与多步任务 | read, grep, find, ls, bash, write, edit |
+| `general-purpose` | 开放式搜索、分析与多步任务 | read, grep, find, ls, bash, write, edit |
 | `observer` | 视觉/媒体分析（需视觉模型） | read, grep, find, ls |
 
 `observer` 委托给支持图像输入的模型；若配置的模型无法看图，委托会以明确错误失败。
 
 ### 内置别名
 
-常见角色名已预映射到真实 agent：无论何时被提及（通过 `rad-subagents` 或 `@提及`）都可用，但不会出现在自动补全和 orchestrator 工作流中。它们在运行时解析为目标 agent 的配置（包括你 JSON 里的 `agents.<name>` 覆盖），因此自动保持同步。
+常见角色名已预映射到真实 agent。别名在任何提及方式下都可用（通过 `rad-subagents` 或 `@提及`），且 orchestrator 会把别名以行内注解形式附在目标行上（`@fixer: ... [aka: worker]`），使映射在决策时可见。别名不进入自动补全，也从不作为独立条目列出。它们在运行时解析为目标 agent 的配置（包括你 JSON 里的 `agents.<name>` 覆盖），因此自动保持同步。
 
 | 别名 | 目标 |
 |------|------|
@@ -122,9 +122,7 @@ rad-subagents(chain: [
 | `researcher` | `librarian` |
 | `reviewer` | `oracle` |
 
-用户 `agentAliases` 在同名时覆盖内置别名。
-
-JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别名条目本身，叠加在其从目标继承的配置之上——不会影响目标 agent 自身。
+这张表随插件发布，覆盖其他生态 skill 里使用的角色名。`agents.<name>` 覆盖（`model`、`tools`、`description`）按 agent 名生效，也适用于别名条目——`agents.scout.model` 可以和它的目标 `explorer` 不同，且不影响目标自身。
 
 ## 配置
 
@@ -149,9 +147,6 @@ JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别
       "disabled": false
     }
   },
-  "agentAliases": {
-    "navigator": "explorer"
-  },
   "orchestrator": {
     "enabled": true
   }
@@ -165,7 +160,6 @@ JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别
 | `agents.<name>.tools` | string[] | 工具白名单覆盖 |
 | `agents.<name>.description` | string | 覆盖展示给 LLM 的 agent 描述 |
 | `agents.<name>.disabled` | boolean | 完全禁用某个 agent |
-| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如 `@navigator` → `explorer`）。内置别名已覆盖 `scout`→`explorer`、`worker`→`fixer`、`researcher`→`librarian`、`reviewer`→`oracle`；用户条目在同名时覆盖内置 |
 | `startupModelCheck` | boolean | 是否在 pi 启动时运行离线模型检查并警告。默认 `true`。设 `false` 关闭启动警告 |
 | `orchestrator.enabled` | boolean | Orchestrator 模式开关。默认 `true` |
 

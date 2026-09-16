@@ -55,14 +55,6 @@ export interface RadSubagentsPluginConfig {
 	/** Per-agent overrides. Key is agent name (e.g. "explorer", "orchestrator"). */
 	agents?: Record<string, AgentOverrideConfig>;
 
-	/**
-	 * Alias mapping: maps agent names that don’t exist to ones that do.
-	 * Useful when skills reference agents from other ecosystems (e.g. @scout, @worker)
-	 * that aren’t defined in this project, avoiding wasted “unknown agent” calls.
-	 * Key = alias name (the unknown agent), value = real agent name to delegate to.
-	 */
-	agentAliases?: Record<string, string>;
-
 	/** Default model to use for agents that don't have one specified. */
 	defaultModel?: string;
 
@@ -114,7 +106,6 @@ function findGlobalRadSubagentsConfig(): string | null {
  * Load the rad-subagents plugin configuration.
  * Merges project-level JSON on top of global JSON:
  *   - agents: per-agent shallow merge (project overrides same keys)
- *   - agentAliases: merged, project overrides
  *   - orchestrator: merged, project overrides
  *   - other top-level: project overrides global
  */
@@ -146,12 +137,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		};
 	}
 
-	// agentAliases: global → project override
-	const mergedAliases = {
-		...globalConfig.agentAliases,
-		...projectConfig.agentAliases,
-	};
-
 	// orchestrator: merged, project overrides
 	const mergedOrchestrator = {
 		...globalConfig.orchestrator,
@@ -171,8 +156,6 @@ export function loadConfig(cwd: string): RadSubagentsPluginConfig {
 		startupModelCheck: mergedStartupModelCheck,
 		// re-apply merged sub-objects
 		agents: Object.keys(mergedAgents).length > 0 ? mergedAgents : undefined,
-		agentAliases:
-			Object.keys(mergedAliases).length > 0 ? mergedAliases : undefined,
 		orchestrator:
 			Object.keys(mergedOrchestrator).length > 0 ? mergedOrchestrator : undefined,
 	};

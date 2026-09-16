@@ -113,7 +113,7 @@ No live probing happens at startup, and nothing is shown when all references are
 
 ### Built-in aliases
 
-Common role names are pre-mapped to real agents and work whenever mentioned (via `rad-subagents` or `@mention`), while staying hidden from autocomplete and orchestrator workflows. They resolve at runtime to the target agent's config — including your JSON `agents.<name>` overrides — so they stay in sync automatically.
+Common role names are pre-mapped to real agents. An alias works whenever it is mentioned (via `rad-subagents` or `@mention`), and the orchestrator shows it inline on its target's line (`@fixer: ... [aka: worker]`) so the mapping is visible at decision time. Aliases stay out of autocomplete and are never listed as entries of their own. They resolve at runtime to the target agent's config — including your JSON `agents.<name>` overrides — so they stay in sync automatically.
 
 | Alias | Target |
 |-------|--------|
@@ -122,9 +122,7 @@ Common role names are pre-mapped to real agents and work whenever mentioned (via
 | `researcher` | `librarian` |
 | `reviewer` | `oracle` |
 
-User `agentAliases` override built-in ones on name collision.
-
-JSON `agents.<alias>` overrides (`model`, `tools`, `description`) apply to the alias entry on top of the config it inherits from its target — they never affect the target itself.
+The table ships with the plugin and covers the role names other ecosystems' skills use. `agents.<name>` overrides (`model`, `tools`, `description`) key on agent name and apply to alias entries too, so `agents.scout.model` can diverge from its target `explorer` without affecting the target.
 
 ## Configuration
 
@@ -149,9 +147,6 @@ Example `.pi/rad-subagents.json`:
       "disabled": false
     }
   },
-  "agentAliases": {
-    "navigator": "explorer"
-  },
   "orchestrator": {
     "enabled": true
   }
@@ -165,7 +160,6 @@ Example `.pi/rad-subagents.json`:
 | `agents.<name>.tools` | string[] | Tool allowlist override |
 | `agents.<name>.description` | string | Override agent description shown to the LLM |
 | `agents.<name>.disabled` | boolean | Disable an agent entirely |
-| `agentAliases` | object | Map unknown agent names to real ones (e.g. `@navigator` → `explorer`). Built-in aliases already cover `scout`→`explorer`, `worker`→`fixer`, `researcher`→`librarian`, `reviewer`→`oracle`; user entries override built-ins on name collision |
 | `startupModelCheck` | boolean | Run the offline model check and warn on pi startup. Default: `true`. Set `false` to silence the startup warning |
 | `orchestrator.enabled` | boolean | Orchestrator mode on/off. Default: `true` |
 

@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "explorer": { "model": ["m1", "m2"] },
+    "scout": {
+      "model": "alias-m1",
+      "tools": ["read"],
+      "description": "overridden alias description"
+    }
+  }
+}

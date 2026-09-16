@@ -639,8 +639,6 @@ export default function (pi: ExtensionAPI) {
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const pluginConfig = loadConfig(ctx.cwd);
-			const agentAliases = pluginConfig.agentAliases ?? {};
 			const agentScope: AgentScope = params.agentScope ?? "user";
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
@@ -678,8 +676,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.agent) requestedNames.push(params.agent);
 
 			for (const name of requestedNames) {
-				const resolved = agentAliases[name] ?? name;
-				const agent = agents.find((a) => a.name === resolved);
+				const agent = agents.find((a) => a.name === name);
 				if (!agent) continue; // unknown agent is reported later
 				const err = checkVisionRequirement(agent, ctx);
 				if (err) {
@@ -705,10 +702,7 @@ export default function (pi: ExtensionAPI) {
 				if (params.agent) requestedAgentNames.add(params.agent);
 
 				const projectAgentsRequested = Array.from(requestedAgentNames)
-					.map((name) => {
-						const resolved = agentAliases[name] ?? name;
-						return agents.find((a) => a.name === resolved);
-					})
+					.map((name) => agents.find((a) => a.name === name))
 					.filter((a): a is NonNullable<typeof a> => a?.source === "project");
 
 				if (projectAgentsRequested.length > 0) {
@@ -1057,9 +1051,7 @@ export default function (pi: ExtensionAPI) {
 		if (/[/\\]/.test(agentName)) return;
 
 		const { agents } = discoverAgents(ctx.cwd, "both");
-		const resolvedInputAgent =
-			loadConfig(ctx.cwd).agentAliases?.[agentName] ?? agentName;
-		if (!agents.find((a) => a.name === resolvedInputAgent)) return;
+		if (!agents.find((a) => a.name === agentName)) return;
 
 		return {
 			action: "transform" as const,

@@ -28,8 +28,9 @@ import {
  * Built-in aliases: expanded into real agent entries at discovery time, but
  * marked with `aliasOf` so they stay hidden from @-lists and autocomplete.
  * Content is in sync with the target by construction (same AgentConfig),
- * so updating e.g. oracle.md automatically updates the alias.
- * User-configured agentAliases override these on name collision.
+ * so updating e.g. oracle.md automatically updates the alias. The table is the
+ * only alias source, which keeps every alias a constant the plugin ships and
+ * tests can enumerate.
  */
 export const BUILTIN_ALIASES: Record<string, string> = {
 	scout: "explorer",
@@ -52,7 +53,7 @@ export interface AgentConfig {
 	modelPriority?: string[];
 	/** Agent requires a vision-capable model (enforced at delegation time). */
 	requiresVision?: boolean;
-	/** Alias of a real agent (set only on entries expanded from agentAliases). */
+	/** Alias of a real agent (set only on entries expanded from BUILTIN_ALIASES). */
 	aliasOf?: string;
 	systemPrompt: string;
 	source: "user" | "project" | "builtin";
@@ -189,18 +190,11 @@ export function discoverAgents(
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
 
-	// Expand aliases into real agent entries so aliases are visible to the
-	// LLM at decision time (available-agent lists, vision checks, @-mentions).
-	// Real agents win on name collision; dangling aliases (target missing) are
-	// skipped (with a warning for user-configured ones). Chained aliases
-	// (A->B where B is itself an alias) are not supported.
-	// User agentAliases first so they can override built-in aliases.
-	for (const [alias, targetName] of Object.entries(
-		pluginConfig.agentAliases ?? {},
-	)) {
-		expandAlias(agentMap, alias, targetName, true);
-	}
-	// Built-in aliases fill in names the user didn't override.
+	// Expand built-in aliases into real agent entries so aliases are visible to
+	// the LLM at decision time (available-agent lists, vision checks,
+	// @-mentions). Real agents win on name collision; an alias whose target is
+	// missing is silently skipped — the table is a constant, so a broken target
+	// is a bug in this file, not a user error worth reporting.
 	for (const [alias, targetName] of Object.entries(BUILTIN_ALIASES)) {
 		expandAlias(agentMap, alias, targetName);
 	}
@@ -221,24 +215,17 @@ export function discoverAgents(
 /**
  * Insert one alias entry into the agent map, copying the target's config.
  * Skips on name collision (a real agent or earlier alias wins) and on a
- * missing target (warns only for user-configured aliases).
+ * missing target (impossible for the built-in table; guarded so a bad edit
+ * degrades to a missing alias rather than a crash).
  */
 function expandAlias(
 	agentMap: Map<string, AgentConfig>,
 	alias: string,
 	targetName: string,
-	warnOnMissing = false,
 ): void {
 	if (agentMap.has(alias)) return;
 	const target = agentMap.get(targetName);
-	if (!target) {
-		if (warnOnMissing) {
-			console.warn(
-				`[rad-subagents] agentAliases: alias "${alias}" targets unknown agent "${targetName}", skipped`,
-			);
-		}
-		return;
-	}
+	if (!target) return;
 	agentMap.set(alias, {
 		...target,
 		name: alias,

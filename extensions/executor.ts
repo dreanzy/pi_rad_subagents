@@ -13,7 +13,6 @@ import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig, AgentScope } from "./agents.ts";
-import { loadConfig } from "./config.ts";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -578,25 +577,17 @@ export async function runSingleAgent(
 		Math.max(0, options?.retryOnTimeout ?? DEFAULT_RETRY_ON_TIMEOUT),
 		MAX_RETRY_ON_TIMEOUT,
 	);
-	const pluginConfig = loadConfig(defaultCwd);
-	const resolvedAgentName = pluginConfig.agentAliases?.[agentName] ?? agentName;
-
-	const agent = agents.find((a) => a.name === resolvedAgentName);
+	const agent = agents.find((a) => a.name === agentName);
 
 	if (!agent) {
 		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
-		const aliases = Object.entries(pluginConfig.agentAliases ?? {})
-			.filter(([, target]) => agents.some((a) => a.name === target))
-			.map(([alias, target]) => `${alias}->${target}`)
-			.join(", ");
-		const aliasHint = aliases ? ` Available aliases: ${aliases}.` : "";
 		return {
 			agent: agentName,
 			agentSource: "unknown",
 			task,
 			exitCode: 1,
 			messages: [],
-			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.${aliasHint}`,
+			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
 			usage: emptyUsage(),
 			retryable: false,
 

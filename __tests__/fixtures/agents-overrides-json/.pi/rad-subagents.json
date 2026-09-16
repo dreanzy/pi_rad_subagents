@@ -1,0 +1,8 @@
+{
+  "agents": {
+    "explorer": {
+      "model": ["m1", "m2"],
+      "tools": ["read", "bash"]
+    }
+  }
+}
