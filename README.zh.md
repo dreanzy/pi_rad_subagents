@@ -106,6 +106,7 @@ rad-subagents(chain: [
 | `oracle` | 架构决策 + 代码审查 | read, grep, find, ls, bash |
 | `designer` | UI/UX 设计与实现 | read, grep, find, ls, bash, write, edit |
 | `fixer` | 有界实现专家 | read, grep, find, ls, bash, write, edit |
+| `general-purpose` | 开敞型搜索、分析与多步任务 | read, grep, find, ls, bash, write, edit |
 | `observer` | 视觉/媒体分析（需视觉模型） | read, grep, find, ls |
 
 `observer` 委托给支持图像输入的模型；若配置的模型无法看图，委托会以明确错误失败。
@@ -116,7 +117,6 @@ rad-subagents(chain: [
 
 | 别名 | 目标 |
 |------|------|
-| `general-purpose` | `oracle` |
 | `scout` | `explorer` |
 | `worker` | `fixer` |
 | `researcher` | `librarian` |
@@ -165,7 +165,7 @@ JSON `agents.<别名>` 覆盖（`model`、`tools`、`description`）作用于别
 | `agents.<name>.tools` | string[] | 工具白名单覆盖 |
 | `agents.<name>.description` | string | 覆盖展示给 LLM 的 agent 描述 |
 | `agents.<name>.disabled` | boolean | 完全禁用某个 agent |
-| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如 `@navigator` → `explorer`）。内置别名已覆盖 `general-purpose`→`oracle`、`scout`→`explorer`、`worker`→`fixer`、`researcher`→`librarian`、`reviewer`→`oracle`；用户条目在同名时覆盖内置 |
+| `agentAliases` | object | 将未知 agent 名映射到真实 agent（如 `@navigator` → `explorer`）。内置别名已覆盖 `scout`→`explorer`、`worker`→`fixer`、`researcher`→`librarian`、`reviewer`→`oracle`；用户条目在同名时覆盖内置 |
 | `startupModelCheck` | boolean | 是否在 pi 启动时运行离线模型检查并警告。默认 `true`。设 `false` 关闭启动警告 |
 | `orchestrator.enabled` | boolean | Orchestrator 模式开关。默认 `true` |
 

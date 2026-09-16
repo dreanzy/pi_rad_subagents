@@ -17,11 +17,11 @@ import {
 	parseFrontmatter,
 } from "@earendil-works/pi-coding-agent";
 import {
-	type RadSubagentsPluginConfig,
-	loadConfig,
-	resolveAgentConfig,
-	isAgentDisabled,
 	createTtlCache,
+	isAgentDisabled,
+	loadConfig,
+	type RadSubagentsPluginConfig,
+	resolveAgentConfig,
 } from "./config.ts";
 
 /**
@@ -32,7 +32,6 @@ import {
  * User-configured agentAliases override these on name collision.
  */
 export const BUILTIN_ALIASES: Record<string, string> = {
-	"general-purpose": "oracle",
 	scout: "explorer",
 	worker: "fixer",
 	researcher: "librarian",

@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { buildAgentSection } from "../extensions/orchestrator.ts";
+import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../extensions/agents.ts";
+import { buildAgentSection } from "../extensions/orchestrator.ts";
 
 function agent(name: string, description = `${name} desc`): AgentConfig {
 	return {
@@ -26,15 +26,29 @@ describe("buildAgentSection", () => {
 		expect(buildAgentSection(shuffled)).toBe(buildAgentSection(reversed));
 	});
 
-	it("excludes aliases and keeps the real agent", () => {
+	it("excludes alias entries and annotates their target with aka", () => {
 		const alias: AgentConfig = {
 			...agent("scout", "alias of zulu"),
 			aliasOf: "zulu",
 		};
 		const section = buildAgentSection([alias, agent("zulu")]);
 
-		expect(section).toBe("- @zulu: zulu desc");
-		expect(section).not.toContain("scout");
+		expect(section).toBe("- @zulu: zulu desc [aka: scout]");
+		expect(section).not.toContain("- @scout:");
+	});
+
+	it("sorts aka names and lists every alias of a target", () => {
+		const mk = (name: string): AgentConfig => ({
+			...agent(name, "alias"),
+			aliasOf: "zulu",
+		});
+		const section = buildAgentSection([
+			mk("yankee"),
+			mk("alpha"),
+			agent("zulu"),
+		]);
+
+		expect(section).toBe("- @zulu: zulu desc [aka: alpha, yankee]");
 	});
 
 	it("prefers the rich AGENT_DETAILS text for built-in agents", () => {

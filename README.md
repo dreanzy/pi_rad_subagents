@@ -106,6 +106,7 @@ No live probing happens at startup, and nothing is shown when all references are
 | `oracle` | Architecture decisions + code review | read, grep, find, ls, bash |
 | `designer` | UI/UX design + implementation | read, grep, find, ls, bash, write, edit |
 | `fixer` | Bounded implementation specialist | read, grep, find, ls, bash, write, edit |
+| `general-purpose` | Open-ended search, analysis, multi-step tasks | read, grep, find, ls, bash, write, edit |
 | `observer` | Visual/media analysis (requires a vision-capable model) | read, grep, find, ls |
 
 `observer` delegates to a model with image input support; delegation fails with a clear error if the configured model can't see images.
@@ -116,7 +117,6 @@ Common role names are pre-mapped to real agents and work whenever mentioned (via
 
 | Alias | Target |
 |-------|--------|
-| `general-purpose` | `oracle` |
 | `scout` | `explorer` |
 | `worker` | `fixer` |
 | `researcher` | `librarian` |
@@ -165,7 +165,7 @@ Example `.pi/rad-subagents.json`:
 | `agents.<name>.tools` | string[] | Tool allowlist override |
 | `agents.<name>.description` | string | Override agent description shown to the LLM |
 | `agents.<name>.disabled` | boolean | Disable an agent entirely |
-| `agentAliases` | object | Map unknown agent names to real ones (e.g. `@navigator` → `explorer`). Built-in aliases already cover `general-purpose`→`oracle`, `scout`→`explorer`, `worker`→`fixer`, `researcher`→`librarian`, `reviewer`→`oracle`; user entries override built-ins on name collision |
+| `agentAliases` | object | Map unknown agent names to real ones (e.g. `@navigator` → `explorer`). Built-in aliases already cover `scout`→`explorer`, `worker`→`fixer`, `researcher`→`librarian`, `reviewer`→`oracle`; user entries override built-ins on name collision |
 | `startupModelCheck` | boolean | Run the offline model check and warn on pi startup. Default: `true`. Set `false` to silence the startup warning |
 | `orchestrator.enabled` | boolean | Orchestrator mode on/off. Default: `true` |
 

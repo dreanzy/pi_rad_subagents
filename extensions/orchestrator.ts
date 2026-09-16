@@ -11,9 +11,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { loadConfig, findProjectRadSubagentsConfig } from "./config.ts";
 import type { AgentConfig } from "./agents.ts";
 import { discoverAgents } from "./agents.ts";
+import { findProjectRadSubagentsConfig, loadConfig } from "./config.ts";
 
 const ORCHESTRATOR_AGENTS_PLACEHOLDER = "__AVAILABLE_AGENTS__";
 
@@ -34,6 +34,8 @@ const AGENT_DETAILS: Record<string, string> = {
 		"UI/UX design, related edits, design polish and review. Permissions: read_files, write_files. Capabilities: Good design taste, visual relevant edits, interactions, responsive layouts, design systems with aesthetic intent.",
 	fixer:
 		"Bounded implementation and execution. Role: Fast execution specialist for well-defined tasks. Permissions: read_files, write_files. Stats: 2x faster code edits, half your cost.",
+	"general-purpose":
+		"Open-ended generalist — search, analysis, and multi-step execution in one lane. Role: Broad or uncertain-scope tasks that fit no narrower specialist: hunting a keyword/pattern across a large codebase, reading many files to explain how a system fits together, or a task whose steps you cannot enumerate upfront. Permissions: read_files, write_files. Delegate when: the scope is unknown, the search may need several strategies, or discovery and the edit belong in the same context. Don't delegate when: a read-only map suffices (@explorer is cheaper) or the change is already fully specified (@fixer is faster).",
 	observer:
 		"Visual/media analysis isolated from main context. Role: Visual analysis specialist for images, screenshots, and diagrams. Permissions: read_files only. Capabilities: Interprets images, screenshots, PDFs, and diagrams; extracts UI elements, layouts, text, relationships.",
 	deepwork:
@@ -63,7 +65,7 @@ ${ORCHESTRATOR_AGENTS_PLACEHOLDER}
 
 Orchestrator is your role, not a subagent: there is no @orchestrator to delegate to. For strategic input, route to @oracle.
 
-Route each concern to the right specialist: @explorer for discovery, @librarian for research, @oracle for review, @fixer for implementation, @designer for UI, @deepwork for complex multi-step tasks.
+Route each concern to the right specialist: @explorer for discovery, @librarian for research, @oracle for review, @fixer for implementation, @designer for UI, @deepwork for complex multi-step tasks, @general-purpose for open-ended work that fits no narrower lane.
 
 ## Workflow
 
@@ -80,6 +82,7 @@ Common parallel splits:
 - Multiple @explorer searches across different domains
 - @explorer + @librarian (code search + external research) in parallel
 - Multiple @fixer instances for independent, scoped implementation
+- @general-purpose alone for unknown-scope work, rather than guessing at a specialist
 - @observer + @explorer (visual analysis + code search) in parallel
 
 **Dispatch efficiency:**
@@ -193,10 +196,27 @@ function compareAgentName(a: AgentConfig, b: AgentConfig): number {
  * prompt-prefix caching.
  */
 export function buildAgentSection(agents: AgentConfig[]): string {
+	// Reverse-index aliases onto their target so the LLM sees the equivalence
+	// at decision time (a skill's literal `worker` resolves to @fixer without a
+	// round-trip through an "Unknown agent" error). Sorted: alias order
+	// inherits readdir order otherwise, which would drift the injected text
+	// across machines (see the note above).
+	const aliasesByTarget = new Map<string, string[]>();
+	for (const a of agents) {
+		if (!a.aliasOf) continue;
+		const list = aliasesByTarget.get(a.aliasOf) ?? [];
+		list.push(a.name);
+		aliasesByTarget.set(a.aliasOf, list);
+	}
+
 	return agents
 		.filter((a) => !a.aliasOf)
 		.sort(compareAgentName)
-		.map((a) => `- @${a.name}: ${AGENT_DETAILS[a.name] ?? a.description}`)
+		.map((a) => {
+			const aka = aliasesByTarget.get(a.name)?.sort().join(", ");
+			const detail = AGENT_DETAILS[a.name] ?? a.description;
+			return `- @${a.name}: ${detail}${aka ? ` [aka: ${aka}]` : ""}`;
+		})
 		.join("\n");
 }
 

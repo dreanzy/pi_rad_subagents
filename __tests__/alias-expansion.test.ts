@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { BUILTIN_ALIASES, discoverAgents } from "../extensions/agents.ts";
 
 // discoverAgents reads real config + agent dirs; alias expansion is tested via
@@ -52,9 +52,20 @@ describe("discoverAgents alias expansion", () => {
 		it("lets user agentAliases override built-in aliases", () => {
 			const cwd = import.meta.dirname + "/fixtures/aliases-override-builtin";
 			const { agents } = discoverAgents(cwd, "user");
+			const scout = agents.find((a) => a.name === "scout");
+			expect(scout).toBeDefined();
+			expect(scout!.aliasOf).toBe("oracle");
+		});
+
+		it("keeps a real agent that collides with a built-in alias name", () => {
+			// `general-purpose` ships as a real built-in agent; the alias table must
+			// not shadow it, so it carries no aliasOf marker.
+			const cwd = import.meta.dirname + "/fixtures/aliases";
+			const { agents } = discoverAgents(cwd, "user");
 			const gp = agents.find((a) => a.name === "general-purpose");
 			expect(gp).toBeDefined();
-			expect(gp!.aliasOf).toBe("explorer");
+			expect(gp!.aliasOf).toBeUndefined();
+			expect(gp!.source).toBe("builtin");
 		});
 
 		it("applies JSON agents.<alias> overrides on top of inherited config", () => {
