@@ -121,6 +121,7 @@ Common parallel splits:
 - Before making edits yourself or launching another writer task, compare against running task scopes.
 - Parallel delegation is allowed only when their write scopes do not conflict.
 - Never reissue an unchanged task to the same specialist after a rejection; adjust its scope or context before retrying.
+- If a delegation with an explicit \`resumeSession\` is refused (the session file is gone or unusable), do not relaunch the same objective as a fresh spawn to fake a continuation: the earlier context is lost, so re-brief the specialist from the current state or report the loss.
 - Reconcile all task results before the final response.
 - Don't implement while subagents are running — wait for delegation results before editing files yourself.
 
